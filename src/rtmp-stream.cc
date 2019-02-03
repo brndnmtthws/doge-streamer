@@ -255,6 +255,8 @@ void stream_video(double width, double height, double fps, int bitrate,
         bg_main_loop(width, height, fps, &renderer, &cam_switcher);
       });
 
+  std::this_thread::sleep_for(std::chrono::seconds(60));
+
   do {
     try {
       for (int i = cam_idx_start; i < 5; ++i) {
@@ -262,7 +264,7 @@ void stream_video(double width, double height, double fps, int bitrate,
         {
           auto cam = get_device(i, width, height, fps);
           cam.release();
-          std::this_thread::sleep_for(std::chrono::seconds(1));
+          std::this_thread::sleep_for(std::chrono::seconds(10));
         }
         avCodec.init_audio(i);
         auto ptr = std::make_shared<std::thread>(
@@ -271,6 +273,7 @@ void stream_video(double width, double height, double fps, int bitrate,
                                &cam_switcher);
             });
         cam_threads.add(i, ptr);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
       }
     } catch (std::runtime_error &e) {
       printf("caught exception: %s\n", e.what());
