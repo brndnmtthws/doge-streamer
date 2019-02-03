@@ -29,10 +29,10 @@ class CamThreads {
 
 class Renderer {
   std::mutex mutex;
-  AvCodec &avCodec;
+  AvCodec *avCodec;
 
  public:
-  Renderer(AvCodec &avCodec);
+  Renderer(AvCodec *avCodec);
   ~Renderer();
   void render(cv::Mat &image, int id);
 };

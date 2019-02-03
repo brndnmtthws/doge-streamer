@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/brndnmtthws/doge-streamer.svg?branch=master)](https://travis-ci.org/brndnmtthws/doge-streamer)
+
 # Doge Streamer 🦊
 
 `doge-streamer` is a tool for Doge live streaming, which you can find at:

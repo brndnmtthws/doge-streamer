@@ -37,18 +37,18 @@ void CamThreads::join_joinable() {
   }
 }
 
-Renderer::Renderer(AvCodec &avCodec) : avCodec(avCodec) {}
+Renderer::Renderer(AvCodec *avCodec) : avCodec(avCodec) {}
 
 Renderer::~Renderer() {}
 
 void Renderer::render(cv::Mat &image, int id) {
   if (image.empty()) return;
-  avCodec.set_audio(id);
+  avCodec->set_audio(id);
   std::scoped_lock lock(mutex);
   const int stride[] = {static_cast<int>(image.step[0])};
-  avCodec.sws_scale_video(&image.data, stride, image.rows);
-  avCodec.rescale_video_frame();
-  avCodec.write_frames();
+  avCodec->sws_scale_video(&image.data, stride, image.rows);
+  avCodec->rescale_video_frame();
+  avCodec->write_frames();
 }
 
 bool CamMotion::operator==(const CamMotion &b) const {

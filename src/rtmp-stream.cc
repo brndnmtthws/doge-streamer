@@ -248,7 +248,7 @@ void stream_video(double width, double height, double fps, int bitrate,
                   audio_idx_start);
   CamThreads cam_threads;
   CamSwitcher cam_switcher;
-  Renderer renderer(avCodec);
+  Renderer renderer(&avCodec);
 
   auto bg_image_thread = std::make_shared<std::thread>(
       [width, height, fps, &renderer, &cam_switcher] {
