@@ -1,0 +1,24 @@
+[Unit]
+Description=Doge streamer
+Requires=docker.service
+StartLimitIntervalSec=1m
+StartLimitBurst=5
+
+[Service]
+ExecStartPre=/bin/docker pull doge-streamer:latest
+ExecStart=/bin/docker run \
+  -m 8g \
+  --name=doge-streamer \
+  --device /dev/video0 \
+  --device /dev/video1 \
+  --device /dev/video2 \
+  --device /dev/snd \
+  doge-streamer:latest
+ExecStop=/bin/docker stop doge-streamer
+ExecStopPost=/bin/docker rm -f doge-streamer
+ExecReload=/bin/docker restart doge-streamer
+Restart=always
+RestartSec=250ms
+
+[Install]
+WantedBy=multi-user.target
