@@ -27,7 +27,7 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
                  const std::string &video_preset,
                  const std::string &video_keyframe_s, int audio_idx_start)
     : ofmt_ctx(nullptr),
-      selected_audio_id(-1),
+      selected_audio_id(0),
       audio_format(audio_format),
       audio_out(audio_out),
       video_preset(video_preset),
@@ -74,6 +74,8 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
 
     open_audio_output();
 
+    init_audio(0);
+
     audio_thread = std::thread([this] { audio_loop(); });
   }
 }
@@ -101,8 +103,13 @@ void AvCodec::initialize_avformat_context(const char *format_name) {
 
 void AvCodec::initialize_io_context(const char *output) {
   if (!(ofmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+    AVDictionary *options = nullptr;
+    av_dict_set(&options, "reconnect", "1", 0);
+    av_dict_set(&options, "reconnect_at_eof", "1", 0);
+    av_dict_set(&options, "reconnect_streamed", "1", 0);
+    av_dict_set(&options, "reconnect_delay_max", "2", 0);
     int ret =
-        avio_open2(&ofmt_ctx->pb, output, AVIO_FLAG_WRITE, nullptr, nullptr);
+        avio_open2(&ofmt_ctx->pb, output, AVIO_FLAG_WRITE, nullptr, &options);
     if (ret < 0) {
       fprintf(stderr, "Could not open output IO context (error '%s')\n",
               _av_err2str(ret));
@@ -115,7 +122,8 @@ void AvCodec::initialize_io_context(const char *output) {
 void AvCodec::init_audio(int id) {
   if (!audio_out) { return; }
   std::ostringstream ss;
-  ss << "hw:" << id + audio_idx_start << ",0";
+  ss << ":" << id + audio_idx_start;
+  // ss << "hw:" << id + audio_idx_start << ",0";
   std::string devname(ss.str());
   audio_input_st[id] = initialize_audio_input_context(audio_format, devname);
   open_audio_input(id);
@@ -237,8 +245,8 @@ void AvCodec::set_audio_codec_params(double width, double height, int fps,
   audio_st.st->index = 1;
   audio_st.enc->codec_id = AV_CODEC_ID_AAC;
   audio_st.enc->sample_fmt = audio_st.codec->sample_fmts[0];
-  audio_st.enc->bit_rate = 160000;
-  audio_st.enc->sample_rate = 48000;
+  audio_st.enc->bit_rate = 128000;
+  audio_st.enc->sample_rate = 44100;
   audio_st.enc->channels = 2;
   audio_st.enc->codec_type = AVMEDIA_TYPE_AUDIO;
   audio_st.enc->channel_layout =
@@ -511,7 +519,8 @@ void AvCodec::write_audio_frame(int id) {
   dst_nb_samples = av_rescale_rnd(
       swr_get_delay(st.swr_ctx, c->sample_rate) + st.frame->nb_samples,
       c->sample_rate, c->sample_rate, AV_ROUND_UP);
-  av_assert0(dst_nb_samples == st.frame->nb_samples);
+  // printf("%d %d\n", dst_nb_samples, st.frame->nb_samples);
+  // av_assert0(dst_nb_samples == st.frame->nb_samples);
 
   /* when we pass a frame to the encoder, it may keep a reference to it
    * internally;

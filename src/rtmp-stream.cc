@@ -33,6 +33,7 @@ cv::VideoCapture get_device(int camID, double width, double height,
 
 std::shared_ptr<cv::Mat> image_open(const std::string &fn) {
   const std::string paths[] = {"/opt/doge/artwork/", "./"};
+  printf("image_open('%s')\n", fn.c_str());
   for (auto p : paths) {
     struct stat stat_result;
     std::string name(p + fn);
@@ -69,17 +70,17 @@ void camera_main_loop(const int camID, const double width, const double height,
     return;
   }
 
-  std::string dog_fn("dog.png");
-  auto dog = image_open(dog_fn);
-  std::vector<cv::Mat> dogout;
-  cv::split(*dog, dogout);
-  cv::bitwise_and(dogout[0], dogout[0], dogout[3]);
-  cv::bitwise_and(dogout[1], dogout[1], dogout[3]);
-  cv::bitwise_and(dogout[2], dogout[2], dogout[3]);
-  cv::merge(dogout, *dog);
+  std::string doge_fn("doge.png");
+  auto doge = image_open(doge_fn);
+  std::vector<cv::Mat> dogeout;
+  cv::split(*doge, dogeout);
+  cv::bitwise_and(dogeout[0], dogeout[0], dogeout[3]);
+  cv::bitwise_and(dogeout[1], dogeout[1], dogeout[3]);
+  cv::bitwise_and(dogeout[2], dogeout[2], dogeout[3]);
+  cv::merge(dogeout, *doge);
   cv::cvtColor(image, image, cv::COLOR_RGB2RGBA);
-  cv::Mat dog2 = cv::Mat::zeros(image.size(), image.type());
-  dog->copyTo(dog2(cv::Rect(10, 10, dog->cols, dog->rows)));
+  cv::Mat doge2 = cv::Mat::zeros(image.size(), image.type());
+  doge->copyTo(doge2(cv::Rect(10, 10, doge->cols, doge->rows)));
 
   cam_switcher->mark_active(camID, 0);
 
@@ -167,12 +168,11 @@ void camera_main_loop(const int camID, const double width, const double height,
       motion_before = motion_after;
 
       if (elapsed_motion >= std::chrono::seconds(1)) {
-        cv::putText(image, "Doge Detected", cv::Point(70, 40),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 255, 200),
-                    2);
+        cv::putText(image, "Doge Detected", cv::Point(70, 50),
+                    cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255, 200), 2);
 
         cv::cvtColor(image, image, cv::COLOR_RGB2RGBA);
-        cv::addWeighted(image, 1, dog2, 0.8, 0, image);
+        cv::addWeighted(image, 1, doge2, 0.8, 0, image);
         cv::cvtColor(image, image, cv::COLOR_RGBA2RGB);
         cam_switcher->mark_active(camID, area_max);
       }
@@ -216,6 +216,7 @@ void bg_main_loop(const double width, const double height, const double fps,
     std::string fn = ss.str();
     auto bg = image_open(fn);
     cv::resize(*bg, *bg, cv::Size(width, height), 0, 0, cv::INTER_CUBIC);
+    cv::cvtColor(*bg, *bg, cv::COLOR_RGBA2RGB);
     bg_list.push_back(bg);
   }
   auto bg_changed = std::chrono::system_clock::now();
@@ -224,7 +225,7 @@ void bg_main_loop(const double width, const double height, const double fps,
     try {
       if (cam_switcher->empty()) {
         auto now = std::chrono::system_clock::now();
-        if (now - bg_changed > std::chrono::minutes(10)) {
+        if (now - bg_changed > std::chrono::minutes(7)) {
           bg = get_bg(bg_list);
           bg_changed = now;
         }
@@ -266,7 +267,7 @@ void stream_video(double width, double height, double fps, int bitrate,
           cam.release();
           std::this_thread::sleep_for(std::chrono::seconds(10));
         }
-        avCodec.init_audio(i);
+        // avCodec.init_audio(i);
         auto ptr = std::make_shared<std::thread>(
             [i, width, height, fps, &renderer, &cam_threads, &cam_switcher] {
               camera_main_loop(i, width, height, fps, &renderer, &cam_threads,
@@ -328,11 +329,11 @@ int main(int argc, char *argv[]) {
            "keyframe interval in secodns (default: 3)",
        (option("-t", "--preset") & value("video_preset", video_preset)) %
            "x264 encoding preset (default: veryfast)",
-       (option("-a", "--audio-format") & value("audio-format", audio_format)) %
+       (option("-u", "--audio-format") & value("audio-format", audio_format)) %
            "Audio input FFmpeg format (default: alsa)",
-       (option("-a", "--audio-out") & value("audio_out", audio_out)) %
+       (option("-a", "--audio-out").set(audio_out)) %
            "output audio (default: false)",
-       (option("-l", "--log") & value("log", dump_log)) %
+       (option("-l", "--log").set(dump_log)) %
            "print debug output (default: false)");
 
   if (!parse(argc, argv, cli)) {
