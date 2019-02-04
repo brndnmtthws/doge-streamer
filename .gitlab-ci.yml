@@ -1,4 +1,4 @@
-image: gcc
+image: gcc:8
 before_script:
   - apt-get update -qqy
   - apt-get install -qqy cmake libopencv-dev libopencv-highgui-dev libopencv-video-dev libopencv-imgproc-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev libswresample-dev libswscale-dev
