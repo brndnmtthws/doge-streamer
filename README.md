@@ -18,6 +18,7 @@ Features:
 - background subtraction based motion detection (using `BackgroundSubtractorMOG2`)
 - automatically switches to active camera
 - displays an image when cameras are inactive
+- stream can be controlled remotely using [doge-stream-helper](https://github.com/brndnmtthws/doge-stream-helper)
 
 TODO:
 

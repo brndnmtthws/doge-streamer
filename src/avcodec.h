@@ -85,7 +85,9 @@ class AvCodec {
 
   std::string audio_format;
   std::string video_preset;
-  std::string video_keyframe_s;
+  std::string video_keyframe_group_size;
+  std::string video_bufsize;
+  std::string video_tune;
   bool audio_out;
   int audio_idx_start;
 
@@ -118,8 +120,9 @@ class AvCodec {
   AvCodec(double width, double height, double fps, int bitrate,
           const std::string &codec_profile, const std::string &server,
           const std::string &audio_format, const bool audio_out,
-          const std::string &video_preset, const std::string &video_keyframe_s,
-          int audio_idx_start);
+          const std::string &video_preset,
+          const std::string &video_keyframe_group_size, int audio_idx_start,
+          const std::string &video_bufsize, const std::string &video_tune);
   ~AvCodec();
 
   void init_audio(int id);

@@ -307,11 +307,14 @@ void stream_video(double width, double height, double fps, int bitrate,
                   const std::string &codec_profile, const std::string &server,
                   const std::string &audio_format, const bool audio_out,
                   const std::string &video_preset,
-                  const std::string &video_keyframe_s, int cam_idx_start,
-                  int audio_idx_start) {
+                  const std::string &video_keyframe_group_size,
+                  int cam_idx_start, int audio_idx_start,
+                  const std::string &video_bufsize,
+                  const std::string &video_tune) {
   AvCodec avCodec(width, height, fps, bitrate, codec_profile, server,
-                  audio_format, audio_out, video_preset, video_keyframe_s,
-                  audio_idx_start);
+                  audio_format, audio_out, video_preset,
+                  video_keyframe_group_size, audio_idx_start, video_bufsize,
+                  video_tune);
   CamThreads cam_threads;
   CamSwitcher cam_switcher;
   Renderer renderer(&avCodec);
@@ -368,8 +371,10 @@ int main(int argc, char *argv[]) {
   std::string audio_format = "alsa";
   std::string outputServer = "rtmp://localhost/live/stream";
   std::string video_preset = "veryfast";
-  std::string video_keyframe_s = "3";
+  std::string video_keyframe_group_size = "3";
   std::string state_url = "";
+  std::string video_bufsize = "5000k";
+  std::string video_tune = "zerolatency";
   int cam_idx_start = 0;
   int audio_idx_start = 0;
   bool dump_log = false;
@@ -394,10 +399,15 @@ int main(int argc, char *argv[]) {
        (option("-p", "--profile") & value("profile", h264profile)) %
            "H264 codec profile (baseline | high | high10 | high422 | "
            "high444 | main) (default: high)",
-       (option("-k", "--keyframe-s") &
-        value("video_keyframe_s", video_keyframe_s)) %
-           "keyframe interval in secodns (default: 3)",
-       (option("-t", "--preset") & value("video_preset", video_preset)) %
+       (option("-k", "--keyframe-group-size") &
+        value("video_keyframe_group_size", video_keyframe_group_size)) %
+           "keyframe group size in number of frames (default: 90)",
+       (option("-z", "--video-bufsize") &
+        value("video-bufsize", video_bufsize)) %
+           "stream buffer size (default: 5000k)",
+       (option("-n", "--video-tune") & value("video-tune", video_tune)) %
+           "tune parameter for x264 (default: zerolatency)",
+       (option("-t", "--preset") & value("video-tune", video_preset)) %
            "x264 encoding preset (default: veryfast)",
        (option("-u", "--audio-format") & value("audio-format", audio_format)) %
            "Audio input FFmpeg format (default: alsa)",
@@ -415,12 +425,16 @@ int main(int argc, char *argv[]) {
 
   if (dump_log) { av_log_set_level(AV_LOG_DEBUG); }
 
-  std::thread check_thread([state_url] { check_stream_state(state_url); });
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  if (stream_state == stream_off) {
-    printf("exiting\n");
-    check_thread.join();
-    return 0;
+  std::thread check_thread;
+  if (!state_url.empty()) {
+    std::thread check_thread =
+        std::thread([state_url] { check_stream_state(state_url); });
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (stream_state == stream_off) {
+      printf("exiting\n");
+      check_thread.join();
+      return 0;
+    }
   }
 
   struct sigaction sigIntHandler;
@@ -432,9 +446,9 @@ int main(int argc, char *argv[]) {
   sigaction(SIGINT, &sigIntHandler, nullptr);
 
   stream_video(width, height, fps, bitrate, h264profile, outputServer,
-               audio_format, audio_out, video_preset, video_keyframe_s,
-               cam_idx_start, audio_idx_start);
+               audio_format, audio_out, video_preset, video_keyframe_group_size,
+               cam_idx_start, audio_idx_start, video_bufsize, video_tune);
 
-  check_thread.join();
+  if (!state_url.empty()) { check_thread.join(); }
   return 0;
 }
