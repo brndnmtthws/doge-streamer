@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.7)
-project(rtmp-stream)
+project(doge-streamer)
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules)
 
