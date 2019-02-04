@@ -10,12 +10,77 @@
 #include <thread>
 #include <vector>
 
+#define HTTP_IMPLEMENTATION
+
 #include "3rdparty/clipp.h"
+#include "3rdparty/http.h"
+#include "3rdparty/picojson.h"
 #include "cam-manage.h"
 
 using clipp::option, clipp::value;
 
 std::atomic<bool> end_of_stream = false;
+
+enum STREAM_STATE {
+  stream_on,
+  stream_off,
+  stream_paused,
+};
+
+std::atomic<STREAM_STATE> stream_state = stream_on;
+
+void check_stream_state(const std::string &url) {
+  while (stream_state != stream_off && !end_of_stream) {
+    http_t *request = http_get(url.c_str(), NULL);
+    if (!request) {
+      printf("Invalid request.\n");
+      exit(1);
+    }
+
+    http_status_t status = HTTP_STATUS_PENDING;
+    int prev_size = -1;
+    while (status == HTTP_STATUS_PENDING) {
+      status = http_process(request);
+      if (prev_size != static_cast<int>(request->response_size)) {
+        prev_size = static_cast<int>(request->response_size);
+      }
+    }
+
+    if (status == HTTP_STATUS_FAILED) {
+      printf("HTTP request failed (%d): %s.\n", request->status_code,
+             request->reason_phrase);
+    } else {
+      using picojson::object, picojson::parse;
+      picojson::value jv;
+      std::string err = parse(
+          jv, std::string(static_cast<const char *>(request->response_data)));
+      if (err.empty()) {
+        if (jv.is<object>()) {
+          object obj = jv.get<object>();
+          std::string state = obj["state"].to_str();
+          if (state == "on") {
+            stream_state = stream_on;
+          } else if (state == "off") {
+            stream_state = stream_off;
+            end_of_stream = true;
+            printf("shutting off stream because state=off\n");
+          } else if (state == "paused") {
+            stream_state = stream_paused;
+          }
+        } else {
+          printf("unexpected response when checking stream state: %s\n",
+                 static_cast<const char *>(request->response_data));
+        }
+      } else {
+        printf("error parsing response from stream check: %s\n", err.c_str());
+      }
+    }
+
+    http_release(request);
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+}
 
 cv::VideoCapture get_device(int camID, double width, double height,
                             double fps) {
@@ -183,7 +248,7 @@ void camera_main_loop(const int camID, const double width, const double height,
       }
 
     } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
-  } while (!end_of_stream);
+  } while (!end_of_stream && stream_state == stream_on);
 
   printf("end of camera_main_loop for camID=%d\n", camID);
 
@@ -235,7 +300,7 @@ void bg_main_loop(const double width, const double height, const double fps,
         std::this_thread::sleep_for(std::chrono::seconds(2));
       }
     } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
-  } while (!end_of_stream);
+  } while (!end_of_stream && stream_state == stream_on);
 }
 
 void stream_video(double width, double height, double fps, int bitrate,
@@ -256,11 +321,14 @@ void stream_video(double width, double height, double fps, int bitrate,
         bg_main_loop(width, height, fps, &renderer, &cam_switcher);
       });
 
-  std::this_thread::sleep_for(std::chrono::seconds(60));
+  for (int i = 0; i < 60 && !end_of_stream; ++i) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
 
   do {
     try {
-      for (int i = cam_idx_start; i < 5; ++i) {
+      for (int i = cam_idx_start; i < 5 && !end_of_stream; ++i) {
+        if (stream_state == stream_paused) { continue; }
         if (cam_threads.has_cam(i)) { continue; }
         {
           auto cam = get_device(i, width, height, fps);
@@ -281,8 +349,9 @@ void stream_video(double width, double height, double fps, int bitrate,
     }
     cam_threads.join_joinable();
     std::this_thread::sleep_for(std::chrono::seconds(60));
-  } while (!end_of_stream);
+  } while (!end_of_stream && stream_state != stream_off);
 
+  bg_image_thread->join();
   cam_threads.join_all();
 }
 
@@ -300,6 +369,7 @@ int main(int argc, char *argv[]) {
   std::string outputServer = "rtmp://localhost/live/stream";
   std::string video_preset = "veryfast";
   std::string video_keyframe_s = "3";
+  std::string state_url = "";
   int cam_idx_start = 0;
   int audio_idx_start = 0;
   bool dump_log = false;
@@ -333,6 +403,8 @@ int main(int argc, char *argv[]) {
            "Audio input FFmpeg format (default: alsa)",
        (option("-a", "--audio-out").set(audio_out)) %
            "output audio (default: false)",
+       (option("-r", "--state-url") & value("state-url", state_url)) %
+           "stream state url for pausing/deactivating stream (default: none)",
        (option("-l", "--log").set(dump_log)) %
            "print debug output (default: false)");
 
@@ -342,6 +414,14 @@ int main(int argc, char *argv[]) {
   }
 
   if (dump_log) { av_log_set_level(AV_LOG_DEBUG); }
+
+  std::thread check_thread([state_url] { check_stream_state(state_url); });
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  if (stream_state == stream_off) {
+    printf("exiting\n");
+    check_thread.join();
+    return 0;
+  }
 
   struct sigaction sigIntHandler;
 
@@ -355,5 +435,6 @@ int main(int argc, char *argv[]) {
                audio_format, audio_out, video_preset, video_keyframe_s,
                cam_idx_start, audio_idx_start);
 
+  check_thread.join();
   return 0;
 }
