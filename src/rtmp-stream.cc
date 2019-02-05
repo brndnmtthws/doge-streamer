@@ -398,7 +398,7 @@ int main(int argc, char *argv[]) {
         value("cam_idx_start", cam_idx_start)) %
            "starting cam index (default: 0)",
        (option("-x", "--cam-index-stop") &
-        value("cam_idx_start", cam_idx_start)) %
+        value("cam_idx_stop", cam_idx_stop)) %
            "stopping cam index (default: 4)",
        (option("-s", "--audio-index") &
         value("audio_idx_start", audio_idx_start)) %
