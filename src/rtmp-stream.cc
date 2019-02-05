@@ -40,7 +40,7 @@ enum STREAM_STATE {
 std::atomic<STREAM_STATE> stream_state = stream_off;
 
 void check_stream_state(const std::string &url) {
-    do {
+  do {
     http_t *request = http_get(url.c_str(), NULL);
     if (!request) {
       printf("Invalid request.\n");
@@ -441,7 +441,7 @@ int main(int argc, char *argv[]) {
   if (dump_log) {
     av_log_set_level(AV_LOG_DEBUG);
   } else {
-    av_log_set_level(AV_LOG_INFO);
+    av_log_set_level(AV_LOG_VERBOSE);
   }
 
   std::thread check_thread;
