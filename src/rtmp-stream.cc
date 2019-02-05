@@ -346,7 +346,7 @@ void stream_video(double width, double height, double fps, int bitrate,
           cam.release();
           std::this_thread::sleep_for(std::chrono::seconds(10));
         }
-        // avCodec.init_audio(i);
+        avCodec.init_audio(i);
         auto ptr = std::make_shared<std::thread>(
             [i, width, height, fps, &renderer, &cam_threads, &cam_switcher] {
               camera_main_loop(i, width, height, fps, &renderer, &cam_threads,

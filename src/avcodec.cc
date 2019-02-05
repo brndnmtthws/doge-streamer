@@ -29,7 +29,7 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
                  int audio_idx_start, const std::string &video_bufsize,
                  const std::string &video_tune)
     : ofmt_ctx(nullptr),
-      selected_audio_id(0),
+      selected_audio_id(-1),
       audio_format(audio_format),
       audio_out(audio_out),
       video_preset(video_preset),
@@ -55,17 +55,8 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
   video_st.st->codecpar->extradata = video_st.enc->extradata;
   video_st.st->codecpar->extradata_size = video_st.enc->extradata_size;
 
-  av_dump_format(ofmt_ctx, 0, output, 1);
-
   video_st.sws_ctx = initialize_sample_scaler(width, height);
   video_st.frame = allocate_frame_buffer(width, height);
-
-  int ret = avformat_write_header(ofmt_ctx, nullptr);
-  if (ret < 0) {
-    fprintf(stderr, "Could not write header (error '%s')\n", _av_err2str(ret));
-    fflush(stderr);
-    exit(1);
-  }
 
   if (audio_out) {
     audio_st.codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
@@ -76,9 +67,18 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
     initialize_audio_codec_stream(codec_profile);
 
     open_audio_output();
+  }
 
-    init_audio(0);
+  av_dump_format(ofmt_ctx, 0, output, 1);
 
+  int ret = avformat_write_header(ofmt_ctx, nullptr);
+  if (ret < 0) {
+    fprintf(stderr, "Could not write header (error '%s')\n", _av_err2str(ret));
+    fflush(stderr);
+    exit(1);
+  }
+
+  if (audio_out) {
     audio_thread = std::thread([this] { audio_loop(); });
   }
 }
@@ -451,7 +451,6 @@ void AvCodec::open_audio_output() {
 
   audio_st.frame = alloc_audio_frame(c->sample_fmt, c->channel_layout,
                                      c->sample_rate, nb_samples);
-  audio_st.frame->pts = audio_st.next_pts;
 
   /* copy the stream parameters to the muxer */
   ret = avcodec_parameters_from_context(audio_st.st->codecpar, c);
@@ -560,7 +559,7 @@ void AvCodec::audio_loop() {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } else {
       std::scoped_lock lock(writing_mutex);
-      while (av_compare_ts(audio_st.next_pts, video_st.enc->time_base,
+      while (av_compare_ts(audio_st.next_pts, audio_st.enc->time_base,
                            video_st.next_pts, video_st.enc->time_base) <= 0) {
         write_audio_frame(selected_audio_id);
       }
