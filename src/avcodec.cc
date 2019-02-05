@@ -59,7 +59,6 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
 
   video_st.sws_ctx = initialize_sample_scaler(width, height);
   video_st.frame = allocate_frame_buffer(width, height);
-  video_st.frame->pts = video_st.next_pts;
 
   int ret = avformat_write_header(ofmt_ctx, nullptr);
   if (ret < 0) {
@@ -239,6 +238,7 @@ void AvCodec::set_video_codec_params(double width, double height, int fps,
   video_st.enc->bit_rate = bitrate;
   video_st.st->time_base = (AVRational){1, fps};
   video_st.enc->time_base = video_st.st->time_base;
+  video_st.enc->gop_size = std::atoi(video_keyframe_group_size.c_str());
   if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
     video_st.enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
   }
