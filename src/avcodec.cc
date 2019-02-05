@@ -224,8 +224,6 @@ std::shared_ptr<InputStream> AvCodec::initialize_audio_input_context(
 
 void AvCodec::set_video_codec_params(double width, double height, int fps,
                                      int bitrate) {
-  const AVRational dst_fps = {fps, 1};
-
   video_st.enc->codec_tag = 0;
   video_st.enc->codec_id = AV_CODEC_ID_H264;
   video_st.enc->codec_type = AVMEDIA_TYPE_VIDEO;
@@ -233,11 +231,10 @@ void AvCodec::set_video_codec_params(double width, double height, int fps,
   video_st.enc->height = height;
   video_st.enc->gop_size = 12;
   video_st.enc->pix_fmt = AV_PIX_FMT_YUV420P;
-  video_st.enc->framerate = dst_fps;
-  video_st.enc->time_base = av_inv_q(dst_fps);
+  video_st.enc->time_base = (AVRational){1, fps};
+  video_st.enc->framerate = (AVRational){fps, 1};
   video_st.enc->bit_rate = bitrate;
-  video_st.st->time_base = (AVRational){1, fps};
-  video_st.enc->time_base = video_st.st->time_base;
+  video_st.st->time_base = video_st.enc->time_base;
   video_st.enc->gop_size = std::atoi(video_keyframe_group_size.c_str());
   if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
     video_st.enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
