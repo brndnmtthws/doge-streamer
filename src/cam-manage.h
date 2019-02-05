@@ -6,10 +6,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/video.hpp>
-#include <opencv2/video/background_segm.hpp>
 
 #include "avcodec.h"
 

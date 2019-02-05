@@ -10,6 +10,10 @@
 #include <thread>
 #include <vector>
 
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/video.hpp>
+#include <opencv2/video/background_segm.hpp>
+
 #define HTTP_IMPLEMENTATION
 
 #include "3rdparty/clipp.h"
