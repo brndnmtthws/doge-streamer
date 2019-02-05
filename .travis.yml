@@ -26,6 +26,7 @@ before_install:
       sudo add-apt-repository -y ppa:jonathonf/ffmpeg-4
       sudo add-apt-repository -y 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main'
       sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+      sudo add-apt-repository -y ppa:grochefort/opencv
       sudo apt-get update -qq
       if [[ "$CC" == "gcc-8" ]]; then
         sudo apt-get install -yqq g++-8 libstdc++-8-dev
