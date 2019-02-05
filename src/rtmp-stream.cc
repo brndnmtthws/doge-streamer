@@ -10,10 +10,10 @@
 #include <thread>
 #include <vector>
 
+#include <opencv2/core/version.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/video/background_segm.hpp>
 #include <opencv2/video/video.hpp>
-#include <opencv2/core/version.hpp>
 
 #if !defined(CV_VERSION_EPOCH) && CV_VERSION_MAJOR >= 4
 // for compat with older versions of opencv
@@ -448,6 +448,8 @@ int main(int argc, char *argv[]) {
       check_thread.join();
       return 0;
     }
+  } else {
+    stream_state = stream_on;
   }
 
   struct sigaction sigIntHandler;

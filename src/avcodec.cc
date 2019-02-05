@@ -344,6 +344,7 @@ AVFrame *AvCodec::allocate_frame_buffer(double width, double height) {
   frame->height = height;
   frame->format = static_cast<int>(video_st.enc->pix_fmt);
   frame->key_frame = 0;
+  frame->pts = 0;
 
   return frame;
 }
