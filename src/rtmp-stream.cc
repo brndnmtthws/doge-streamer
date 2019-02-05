@@ -10,10 +10,14 @@
 #include <thread>
 #include <vector>
 
-#include <opencv2/videoio/videoio_c.h>  // for compat with older versions of opencv
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/video/background_segm.hpp>
 #include <opencv2/video/video.hpp>
+
+#if CV_VERSION_MAJOR >= 3
+// for compat with older versions of opencv
+#include <opencv2/videoio/videoio_c.h>
+#endif /* CV_VERSION_MAJOR >= 3 */
 
 #define HTTP_IMPLEMENTATION
 
