@@ -316,7 +316,7 @@ void stream_video(double width, double height, double fps, int bitrate,
                   const std::string &audio_format, const bool audio_out,
                   const std::string &video_preset,
                   const std::string &video_keyframe_group_size,
-                  int cam_idx_start, int audio_idx_start,
+                  int cam_idx_start, int cam_idx_stop, int audio_idx_start,
                   const std::string &video_bufsize,
                   const std::string &video_tune) {
   AvCodec avCodec(width, height, fps, bitrate, codec_profile, server,
@@ -338,7 +338,7 @@ void stream_video(double width, double height, double fps, int bitrate,
 
   while (!end_of_stream && stream_state != stream_off) {
     try {
-      for (int i = cam_idx_start; i < 5 && !end_of_stream; ++i) {
+      for (int i = cam_idx_start; i < cam_idx_stop && !end_of_stream; ++i) {
         if (stream_state == stream_paused) { continue; }
         if (cam_threads.has_cam(i)) { continue; }
         {
@@ -386,6 +386,7 @@ int main(int argc, char *argv[]) {
   std::string video_bufsize = "10000k";
   std::string video_tune = "zerolatency";
   int cam_idx_start = 0;
+  int cam_idx_stop = 4;
   int audio_idx_start = 0;
   bool dump_log = false;
   bool audio_out = false;
@@ -393,8 +394,12 @@ int main(int argc, char *argv[]) {
   auto cli =
       ((option("-o", "--output") & value("output", outputServer)) %
            "output RTMP server (default: rtmp://localhost/live/stream)",
-       (option("-c", "--cam-index") & value("cam_idx_start", cam_idx_start)) %
+       (option("-c", "--cam-index-start") &
+        value("cam_idx_start", cam_idx_start)) %
            "starting cam index (default: 0)",
+       (option("-x", "--cam-index-stop") &
+        value("cam_idx_start", cam_idx_start)) %
+           "stopping cam index (default: 4)",
        (option("-s", "--audio-index") &
         value("audio_idx_start", audio_idx_start)) %
            "starting audio (sound card) index (default: 0)",
@@ -462,7 +467,8 @@ int main(int argc, char *argv[]) {
 
   stream_video(width, height, fps, bitrate, h264profile, outputServer,
                audio_format, audio_out, video_preset, video_keyframe_group_size,
-               cam_idx_start, audio_idx_start, video_bufsize, video_tune);
+               cam_idx_start, cam_idx_stop, audio_idx_start, video_bufsize,
+               video_tune);
 
   if (!state_url.empty()) { check_thread.join(); }
   return 0;
