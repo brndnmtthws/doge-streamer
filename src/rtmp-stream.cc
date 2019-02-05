@@ -447,7 +447,7 @@ int main(int argc, char *argv[]) {
   std::thread check_thread;
   if (!state_url.empty()) {
     check_thread = std::thread([state_url] { check_stream_state(state_url); });
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(3));
     if (stream_state == stream_off) {
       printf("exiting\n");
       check_thread.join();
