@@ -286,7 +286,7 @@ void bg_main_loop(const double width, const double height, const double fps,
   }
   auto bg_changed = std::chrono::system_clock::now();
   auto bg = get_bg(bg_list);
-  do {
+  while (!end_of_stream && stream_state != stream_off) {
     try {
       if (cam_switcher->empty()) {
         auto now = std::chrono::system_clock::now();
@@ -295,12 +295,10 @@ void bg_main_loop(const double width, const double height, const double fps,
           bg_changed = now;
         }
         renderer->render(*bg, -1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(33));
-      } else {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
       }
+      std::this_thread::sleep_for(std::chrono::milliseconds(33));
     } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
-  } while (!end_of_stream && stream_state == stream_on);
+  }
 }
 
 void stream_video(double width, double height, double fps, int bitrate,
@@ -324,11 +322,11 @@ void stream_video(double width, double height, double fps, int bitrate,
         bg_main_loop(width, height, fps, &renderer, &cam_switcher);
       });
 
-  for (int i = 0; i < 60 && !end_of_stream; ++i) {
+  for (int i = 0; i < 20 && !end_of_stream; ++i) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
-  do {
+  while (!end_of_stream && stream_state != stream_off) {
     try {
       for (int i = cam_idx_start; i < 5 && !end_of_stream; ++i) {
         if (stream_state == stream_paused) { continue; }
@@ -351,8 +349,10 @@ void stream_video(double width, double height, double fps, int bitrate,
       printf("caught exception: %s\n", e.what());
     }
     cam_threads.join_joinable();
-    std::this_thread::sleep_for(std::chrono::seconds(60));
-  } while (!end_of_stream && stream_state != stream_off);
+    for (int i = 0; i < 60 && !end_of_stream; ++i) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
 
   bg_image_thread->join();
   cam_threads.join_all();
@@ -371,9 +371,9 @@ int main(int argc, char *argv[]) {
   std::string audio_format = "alsa";
   std::string outputServer = "rtmp://localhost/live/stream";
   std::string video_preset = "veryfast";
-  std::string video_keyframe_group_size = "3";
+  std::string video_keyframe_group_size = "90";
   std::string state_url = "";
-  std::string video_bufsize = "5000k";
+  std::string video_bufsize = "10000k";
   std::string video_tune = "zerolatency";
   int cam_idx_start = 0;
   int audio_idx_start = 0;
@@ -404,7 +404,7 @@ int main(int argc, char *argv[]) {
            "keyframe group size in number of frames (default: 90)",
        (option("-z", "--video-bufsize") &
         value("video-bufsize", video_bufsize)) %
-           "stream buffer size (default: 5000k)",
+           "stream buffer size (default: 10000k)",
        (option("-n", "--video-tune") & value("video-tune", video_tune)) %
            "tune parameter for x264 (default: zerolatency)",
        (option("-t", "--preset") & value("video-tune", video_preset)) %
@@ -423,12 +423,15 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  if (dump_log) { av_log_set_level(AV_LOG_DEBUG); }
+  if (dump_log) {
+    av_log_set_level(AV_LOG_DEBUG);
+  } else {
+    av_log_set_level(AV_LOG_INFO);
+  }
 
   std::thread check_thread;
   if (!state_url.empty()) {
-    std::thread check_thread =
-        std::thread([state_url] { check_stream_state(state_url); });
+    check_thread = std::thread([state_url] { check_stream_state(state_url); });
     std::this_thread::sleep_for(std::chrono::seconds(1));
     if (stream_state == stream_off) {
       printf("exiting\n");

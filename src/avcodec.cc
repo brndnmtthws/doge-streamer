@@ -343,6 +343,7 @@ AVFrame *AvCodec::allocate_frame_buffer(double width, double height) {
   frame->width = width;
   frame->height = height;
   frame->format = static_cast<int>(video_st.enc->pix_fmt);
+  frame->key_frame = 0;
 
   return frame;
 }
@@ -374,7 +375,7 @@ void AvCodec::write_frame(OutputStream &stream) {
   pkt.stream_index = stream.st->index;
   pkt.pos = -1;
 
-  if (stream.enc->frame_number % 30 == 0) {
+  if (stream.enc->frame_number % 300 == 0) {
     printf(
         "Frame (%d) pts %lld key_frame %d [coded_picture_number "
         "%d,"
