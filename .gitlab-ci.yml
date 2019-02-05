@@ -1,7 +1,7 @@
 image: ubuntu:bionic
 before_script:
   - apt-get update -qqy
-  - apt-get install -qqy g++ cmake libopencv-dev libopencv-highgui-dev libopencv-video-dev libopencv-imgproc-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev libswresample-dev libswscale-dev
+  - DEBIAN_FRONTEND=noninteractive apt-get install -qqy g++ cmake libopencv-dev libopencv-highgui-dev libopencv-video-dev libopencv-imgproc-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev libswresample-dev libswscale-dev
 build:
   script:
     - mkdir build
