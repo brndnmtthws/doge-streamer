@@ -40,7 +40,7 @@ enum STREAM_STATE {
 std::atomic<STREAM_STATE> stream_state = stream_off;
 
 void check_stream_state(const std::string &url) {
-  while (stream_state != stream_off && !end_of_stream) {
+    do {
     http_t *request = http_get(url.c_str(), NULL);
     if (!request) {
       printf("Invalid request.\n");
@@ -89,7 +89,7 @@ void check_stream_state(const std::string &url) {
     http_release(request);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
-  }
+  } while (stream_state != stream_off && !end_of_stream);
 }
 
 cv::VideoCapture get_device(int camID, double width, double height,
