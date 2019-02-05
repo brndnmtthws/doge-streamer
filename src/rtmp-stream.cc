@@ -37,7 +37,7 @@ enum STREAM_STATE {
   stream_paused,
 };
 
-std::atomic<STREAM_STATE> stream_state = stream_on;
+std::atomic<STREAM_STATE> stream_state = stream_off;
 
 void check_stream_state(const std::string &url) {
   while (stream_state != stream_off && !end_of_stream) {
