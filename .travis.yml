@@ -2,12 +2,12 @@ language: cpp
 dist: xenial
 matrix:
   include:
-    - os: linux
-      env:
-        - MATRIX_EVAL="CC=gcc-8 && CXX=g++-8"
-    - os: linux
-      env:
-        - MATRIX_EVAL="CC=clang-7 && CXX=clang++-7"
+    # - os: linux
+    #   env:
+    #     - MATRIX_EVAL="CC=gcc-8 && CXX=g++-8"
+    # - os: linux
+    #   env:
+    #     - MATRIX_EVAL="CC=clang-7 && CXX=clang++-7"
     - os: osx
       compiler: gcc
       osx_image: xcode10.1
