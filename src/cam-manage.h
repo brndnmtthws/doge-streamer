@@ -6,7 +6,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include <opencv2/imgproc.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 #include "avcodec.h"
 
