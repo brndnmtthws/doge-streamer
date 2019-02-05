@@ -68,7 +68,7 @@ $ make -j4
 ### Run RTMP Server
 
 ```ShellSession
-$ docker run -p 1935:1935 jkuri/rtmp-server
+$ docker run -p 1935:1935 tiangolo/nginx-rtmp
 ...
 ```
 
