@@ -13,11 +13,12 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/video/background_segm.hpp>
 #include <opencv2/video/video.hpp>
+#include <opencv2/core/version.hpp>
 
-#if CV_VERSION_MAJOR >= 3
+#if !defined(CV_VERSION_EPOCH) && CV_VERSION_MAJOR >= 4
 // for compat with older versions of opencv
 #include <opencv2/videoio/videoio_c.h>
-#endif /* CV_VERSION_MAJOR >= 3 */
+#endif /* !defined(CV_VERSION_EPOCH) && CV_VERSION_MAJOR >= 4 */
 
 #define HTTP_IMPLEMENTATION
 
