@@ -5,13 +5,11 @@ matrix:
     - os: linux
       compiler: gcc
       env:
-        CC: gcc-8
-        CXX: g++-8
+        - MATRIX_EVAL="CC=gcc-8 && CXX=g++-8"
     - os: linux
       compiler: clang
       env:
-        CC: clang-7
-        CXX: clang++-7
+        - MATRIX_EVAL="CC=clang-7 && CXX=clang++-7"
     - os: osx
       compiler: gcc
     - os: osx
