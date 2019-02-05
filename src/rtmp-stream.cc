@@ -10,9 +10,10 @@
 #include <thread>
 #include <vector>
 
+#include <opencv2/videoio/videoio_c.h>  // for compat with older versions of opencv
 #include <opencv2/highgui/highgui.hpp>
-#include <opencv2/video/video.hpp>
 #include <opencv2/video/background_segm.hpp>
+#include <opencv2/video/video.hpp>
 
 #define HTTP_IMPLEMENTATION
 
@@ -93,9 +94,9 @@ cv::VideoCapture get_device(int camID, double width, double height,
     throw std::runtime_error("Failed to open video capture device");
   }
 
-  cam.set(cv::CAP_PROP_FRAME_WIDTH, width);
-  cam.set(cv::CAP_PROP_FRAME_HEIGHT, height);
-  cam.set(cv::CAP_PROP_FPS, fps);
+  cam.set(CV_CAP_PROP_FRAME_WIDTH, width);
+  cam.set(CV_CAP_PROP_FRAME_HEIGHT, height);
+  cam.set(CV_CAP_PROP_FPS, fps);
 
   return cam;
 }
