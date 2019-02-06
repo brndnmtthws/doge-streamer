@@ -8,6 +8,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/audio_fifo.h>
 #include <libavutil/imgutils.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
@@ -20,25 +21,29 @@ class OutputStream {
       : st(nullptr),
         enc(nullptr),
         next_pts(0),
+        last_pts(0),
         frame(nullptr),
         t(0),
         tincr(0),
         tincr2(0),
         sws_ctx(nullptr),
-        codec(nullptr) {}
+        codec(nullptr),
+        fifo(nullptr) {}
   ~OutputStream() {
     avcodec_close(enc);
     avcodec_free_context(&enc);
     if (frame->data[0]) { av_freep(frame->data); }
     av_frame_free(&frame);
     sws_freeContext(sws_ctx);
+    av_audio_fifo_free(fifo);
   }
   AVStream *st;
   AVCodecContext *enc;
   AVCodec *codec;
+  AVAudioFifo *fifo;
 
   /* pts of the next frame that will be generated */
-  int64_t next_pts;
+  std::atomic<int64_t> next_pts, last_pts;
 
   AVFrame *frame;
 
@@ -89,7 +94,7 @@ class AvCodec {
   std::string video_bufsize;
   std::string video_tune;
   bool audio_out;
-  int audio_idx_start;
+  int audio_idx;
 
   void initialize_avformat_context(const char *format_name);
   void initialize_io_context(const char *output);
@@ -103,30 +108,49 @@ class AvCodec {
   void initialize_audio_codec_stream(const std::string &codec_profile);
   SwsContext *initialize_sample_scaler(double width, double height);
   AVFrame *allocate_frame_buffer(double width, double height);
-  void write_frame(OutputStream &stream);
-  AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
-                             uint64_t channel_layout, int sample_rate,
-                             int nb_samples);
+  void write_packet(AVPacket *pkt, OutputStream &stream);
   void open_audio_output();
   void open_audio_input(int id);
-  void get_audio_frame(int id);
-  void write_audio_frame(int id);
-  void free(OutputStream &st);
-  void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt);
 
   void audio_loop();
+
+  int add_samples_to_fifo(AVAudioFifo *fifo, uint8_t **converted_input_samples,
+                          const int frame_size);
+  int read_decode_convert_and_store(AVAudioFifo *fifo,
+                                    AVFormatContext *input_format_context,
+                                    AVCodecContext *input_codec_context,
+                                    AVCodecContext *output_codec_context,
+                                    SwrContext *resampler_context);
+  int init_input_frame(AVFrame **frame);
+  int decode_audio_frame(AVFrame *frame, AVFormatContext *input_format_context,
+                         AVCodecContext *input_codec_context,
+                         int *data_present);
+  int convert_samples(const uint8_t **input_data, uint8_t **converted_data,
+                      const int frame_size, SwrContext *resample_context);
+  int init_converted_samples(uint8_t ***converted_input_samples,
+                             AVCodecContext *output_codec_context,
+                             int frame_size);
+  void init_packet(AVPacket *packet);
+  int init_fifo(AVAudioFifo **fifo, AVCodecContext *output_codec_context);
+  int load_encode_and_write(AVAudioFifo *fifo,
+                            AVFormatContext *output_format_context,
+                            AVCodecContext *output_codec_context);
+  int init_output_frame(AVFrame **frame, AVCodecContext *output_codec_context,
+                        int frame_size);
+  int encode_audio_frame(AVFrame *frame, AVFormatContext *output_format_context,
+                         AVCodecContext *output_codec_context,
+                         int *data_present);
 
  public:
   AvCodec(double width, double height, double fps, int bitrate,
           const std::string &codec_profile, const std::string &server,
           const std::string &audio_format, const bool audio_out,
           const std::string &video_preset,
-          const std::string &video_keyframe_group_size, int audio_idx_start,
+          const std::string &video_keyframe_group_size, int audio_idx,
           const std::string &video_bufsize, const std::string &video_tune);
   ~AvCodec();
 
-  void init_audio(int id);
-  void set_audio(int id) { selected_audio_id = id; }
+  void init_audio();
   void del_audio(int id);
 
   void sws_scale_video(const uint8_t *const image_data[], const int stride[],

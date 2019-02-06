@@ -25,8 +25,8 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
                  const std::string &codec_profile, const std::string &server,
                  const std::string &audio_format, const bool audio_out,
                  const std::string &video_preset,
-                 const std::string &video_keyframe_group_size,
-                 int audio_idx_start, const std::string &video_bufsize,
+                 const std::string &video_keyframe_group_size, int audio_idx,
+                 const std::string &video_bufsize,
                  const std::string &video_tune)
     : ofmt_ctx(nullptr),
       selected_audio_id(-1),
@@ -34,7 +34,7 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
       audio_out(audio_out),
       video_preset(video_preset),
       video_keyframe_group_size(video_keyframe_group_size),
-      audio_idx_start(audio_idx_start),
+      audio_idx(audio_idx),
       video_bufsize(video_bufsize),
       video_tune(video_tune) {
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
@@ -67,6 +67,8 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
     initialize_audio_codec_stream(codec_profile);
 
     open_audio_output();
+
+    init_fifo(&audio_st.fifo, audio_st.enc);
   }
 
   av_dump_format(ofmt_ctx, 0, output, 1);
@@ -122,14 +124,16 @@ void AvCodec::initialize_io_context(const char *output) {
   }
 }
 
-void AvCodec::init_audio(int id) {
+void AvCodec::init_audio() {
   if (!audio_out) { return; }
   std::ostringstream ss;
-  ss << ":" << id + audio_idx_start;
-  // ss << "hw:" << id + audio_idx_start << ",0";
+  ss << ":" << audio_idx;
+  // ss << "hw:" << id + audio_idx << ",0";
   std::string devname(ss.str());
-  audio_input_st[id] = initialize_audio_input_context(audio_format, devname);
-  open_audio_input(id);
+  audio_input_st[audio_idx] =
+      initialize_audio_input_context(audio_format, devname);
+  open_audio_input(audio_idx);
+  selected_audio_id = audio_idx;
 }
 
 void AvCodec::del_audio(int id) { audio_input_st.erase(id); }
@@ -210,9 +214,6 @@ std::shared_ptr<InputStream> AvCodec::initialize_audio_input_context(
 
   st->dec->channel_layout = av_get_default_channel_layout(st->dec->channels);
 
-  st->frame = alloc_audio_frame(st->dec->sample_fmt, st->dec->channel_layout,
-                                st->dec->sample_rate, st->dec->frame_size);
-
   std::cout << "This stream has " << st->dec->channels
             << " channels and a sample rate of " << st->dec->sample_rate
             << "Hz and frame_size=" << st->dec->frame_size << std::endl
@@ -229,7 +230,6 @@ void AvCodec::set_video_codec_params(double width, double height, int fps,
   video_st.enc->codec_type = AVMEDIA_TYPE_VIDEO;
   video_st.enc->width = width;
   video_st.enc->height = height;
-  video_st.enc->gop_size = 12;
   video_st.enc->pix_fmt = AV_PIX_FMT_YUV420P;
   video_st.enc->time_base = (AVRational){1, fps};
   video_st.enc->framerate = (AVRational){fps, 1};
@@ -247,13 +247,15 @@ void AvCodec::set_audio_codec_params(double width, double height, int fps,
   audio_st.enc->codec_id = AV_CODEC_ID_AAC;
   audio_st.enc->sample_fmt = audio_st.codec->sample_fmts[0];
   audio_st.enc->bit_rate = 128000;
-  audio_st.enc->sample_rate = 44100;
+  audio_st.enc->sample_rate = 48000;
   audio_st.enc->channels = 2;
   audio_st.enc->codec_type = AVMEDIA_TYPE_AUDIO;
+  audio_st.enc->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
   audio_st.enc->channel_layout =
       av_get_default_channel_layout(audio_st.enc->channels);
   audio_st.st->time_base = (AVRational){1, audio_st.enc->sample_rate};
   audio_st.enc->time_base = audio_st.st->time_base;
+  ofmt_ctx->streams[1]->time_base = audio_st.st->time_base;
   if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
     audio_st.enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
   }
@@ -331,10 +333,6 @@ SwsContext *AvCodec::initialize_sample_scaler(double width, double height) {
 AVFrame *AvCodec::allocate_frame_buffer(double width, double height) {
   AVFrame *frame = av_frame_alloc();
 
-  // std::vector<uint8_t> framebuf(
-  //     av_image_get_buffer_size(video_st.enc->pix_fmt, width, height, 1));
-  // av_image_fill_arrays(frame->data, frame->linesize, framebuf.data(),
-  //                      video_st.enc->pix_fmt, width, height, 1);
   av_image_alloc(frame->data, frame->linesize, width, height,
                  video_st.enc->pix_fmt, 1);
   frame->width = width;
@@ -346,94 +344,33 @@ AVFrame *AvCodec::allocate_frame_buffer(double width, double height) {
   return frame;
 }
 
-void AvCodec::write_frame(OutputStream &stream) {
-  AVPacket pkt = {0};
-  av_init_packet(&pkt);
+void AvCodec::write_packet(AVPacket *pkt, OutputStream &stream) {
+  av_packet_rescale_ts(pkt, stream.enc->time_base,
+                       ofmt_ctx->streams[stream.st->index]->time_base);
 
-  /* rescale output packet timestamp values from codec to stream timebase */
-  av_packet_rescale_ts(&pkt, stream.enc->time_base, stream.st->time_base);
+  pkt->stream_index = stream.st->index;
 
-  int ret = avcodec_send_frame(stream.enc, stream.frame);
-  if (ret < 0) {
-    fprintf(stderr, "Could not send frame (error '%s')\n", _av_err2str(ret));
-    return;
+  if (stream.enc->frame_number % 107 == 0) {
+    printf("Frame (%d) stream_index=%d index=%d pkt_pts=%ld\n",
+           stream.enc->frame_number, pkt->stream_index, stream.st->index,
+           static_cast<long>(pkt->pts));
   }
 
-  pkt.stream_index = stream.st->index;
-  pkt.pos = -1;
-
-  ret = avcodec_receive_packet(stream.enc, &pkt);
-  if (ret < 0) {
-    fprintf(stderr, "Could not encode frame (error '%s')\n", _av_err2str(ret));
-    fflush(stderr);
-    av_packet_unref(&pkt);
-    return;
-  }
-
-  pkt.stream_index = stream.st->index;
-  pkt.pos = -1;
-
-  if (stream.enc->frame_number % 307 == 0) {
-    printf(
-        "Frame (%d) pts %lld key_frame %d [coded_picture_number "
-        "%d,"
-        "display_picture_number %d] stream_index=%d index=%d nb_samples=%d\n",
-        stream.enc->frame_number, static_cast<long long>(stream.frame->pts),
-        stream.frame->key_frame, stream.frame->coded_picture_number,
-        stream.frame->display_picture_number, pkt.stream_index,
-        stream.st->index, stream.frame->nb_samples);
-  }
-
-  av_interleaved_write_frame(ofmt_ctx, &pkt);
-
-  av_packet_unref(&pkt);
+  std::scoped_lock lock(writing_mutex);
+  av_interleaved_write_frame(ofmt_ctx, pkt);
 }
 
 void AvCodec::sws_scale_video(const uint8_t *const image_data[],
                               const int stride[], int image_rows) {
+  av_frame_make_writable(video_st.frame);
   ::sws_scale(video_st.sws_ctx, image_data, stride, 0, image_rows,
               video_st.frame->data, video_st.frame->linesize);
 }
 
 void AvCodec::rescale_video_frame() {
   video_st.frame->pts = video_st.next_pts;
-  video_st.next_pts +=
-      av_rescale_q(1, video_st.enc->time_base, video_st.st->time_base);
-  ;
-}
-
-AVFrame *AvCodec::alloc_audio_frame(enum AVSampleFormat sample_fmt,
-                                    uint64_t channel_layout, int sample_rate,
-                                    int nb_samples) {
-  AVFrame *frame = av_frame_alloc();
-  int ret;
-
-  if (!frame) {
-    fprintf(stderr, "Error allocating an audio frame\n");
-    fflush(stderr);
-    exit(1);
-  }
-
-  frame->format = sample_fmt;
-  frame->channel_layout = channel_layout;
-  frame->sample_rate = sample_rate;
-  frame->nb_samples = nb_samples;
-
-  printf("format=%d channel_layout=%lld sample_rate=%d nb_samples=%d\n",
-         sample_fmt, static_cast<unsigned long long>(channel_layout),
-         sample_rate, nb_samples);
-
-  if (nb_samples) {
-    ret = av_frame_get_buffer(frame, 0);
-    if (ret < 0) {
-      fprintf(stderr, "Error allocating an audio buffer (error '%s')\n",
-              _av_err2str(ret));
-      fflush(stderr);
-      exit(1);
-    }
-  }
-
-  return frame;
+  video_st.last_pts = video_st.frame->pts;
+  video_st.next_pts += 1;
 }
 
 void AvCodec::open_audio_output() {
@@ -442,15 +379,6 @@ void AvCodec::open_audio_output() {
   int ret;
 
   c = audio_st.enc;
-
-  if (c->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE) {
-    nb_samples = 10000;
-  } else {
-    nb_samples = c->frame_size;
-  }
-
-  audio_st.frame = alloc_audio_frame(c->sample_fmt, c->channel_layout,
-                                     c->sample_rate, nb_samples);
 
   /* copy the stream parameters to the muxer */
   ret = avcodec_parameters_from_context(audio_st.st->codecpar, c);
@@ -471,9 +399,12 @@ void AvCodec::open_audio_input(int id) {
   }
 
   /* set options */
+  av_opt_set_int(st.swr_ctx, "in_channel_layout", st.dec->channel_layout, 0);
   av_opt_set_int(st.swr_ctx, "in_channel_count", st.dec->channels, 0);
   av_opt_set_int(st.swr_ctx, "in_sample_rate", st.dec->sample_rate, 0);
   av_opt_set_sample_fmt(st.swr_ctx, "in_sample_fmt", st.dec->sample_fmt, 0);
+  av_opt_set_int(st.swr_ctx, "out_channel_layout", audio_st.enc->channel_layout,
+                 0);
   av_opt_set_int(st.swr_ctx, "out_channel_count", audio_st.enc->channels, 0);
   av_opt_set_int(st.swr_ctx, "out_sample_rate", audio_st.enc->sample_rate, 0);
   av_opt_set_sample_fmt(st.swr_ctx, "out_sample_fmt", audio_st.enc->sample_fmt,
@@ -486,71 +417,27 @@ void AvCodec::open_audio_input(int id) {
   }
 }
 
-void AvCodec::get_audio_frame(int id) {
-  InputStream &st = *audio_input_st[id];
-  AVPacket av_packet_in = {0};
-  av_init_packet(&av_packet_in);
-
-  if (av_read_frame(st.ifmt_ctx, &av_packet_in) < 0) exit(1);
-
-  if (avcodec_send_packet(st.dec, &av_packet_in) != 0) {
-    printf("err 1\n");
-    exit(1);
-  }
-
-  if (avcodec_receive_frame(st.dec, st.frame) != 0) {
-    printf("err 2\n");
-    exit(1);
-  }
-
-  av_packet_unref(&av_packet_in);
-}
-
-void AvCodec::write_audio_frame(int id) {
-  AVCodecContext *c;
-  int ret;
-  int dst_nb_samples;
-  InputStream &st = *audio_input_st[id];
-
-  c = audio_st.enc;
-
-  get_audio_frame(id);
-
-  /* convert samples from native format to destination codec format, using the
-   * resampler */
-  /* compute destination number of samples */
-  dst_nb_samples = av_rescale_rnd(
-      swr_get_delay(st.swr_ctx, c->sample_rate) + st.frame->nb_samples,
-      c->sample_rate, c->sample_rate, AV_ROUND_UP);
-  // printf("%d %d\n", dst_nb_samples, st.frame->nb_samples);
-  // av_assert0(dst_nb_samples == st.frame->nb_samples);
-
-  /* when we pass a frame to the encoder, it may keep a reference to it
-   * internally;
-   * make sure we do not overwrite it here
-   */
-  ret = av_frame_make_writable(audio_st.frame);
-  if (ret < 0) exit(1);
-
-  /* convert to destination format */
-  ret = swr_convert(st.swr_ctx, audio_st.frame->data, dst_nb_samples,
-                    const_cast<const uint8_t **>(st.frame->data),
-                    st.frame->nb_samples);
-  if (ret < 0) {
-    fprintf(stderr, "Error while converting\n");
-    exit(1);
-  }
-  audio_st.frame->pts = audio_st.next_pts;
-  audio_st.next_pts +=
-      av_rescale_q(audio_st.frame->nb_samples, audio_st.enc->time_base,
-                   audio_st.st->time_base);
-
-  write_frame(audio_st);
-}
-
 void AvCodec::write_frames() {
-  std::scoped_lock lock(writing_mutex);
-  write_frame(video_st);
+  AVPacket output_packet;
+  int error;
+  init_packet(&output_packet);
+
+  int ret = avcodec_send_frame(video_st.enc, video_st.frame);
+  if (ret < 0) {
+    fprintf(stderr, "Could not send frame (error '%s')\n", _av_err2str(ret));
+    av_packet_unref(&output_packet);
+    return;
+  }
+
+  ret = avcodec_receive_packet(video_st.enc, &output_packet);
+  if (ret < 0) {
+    fprintf(stderr, "Could not encode frame (error '%s')\n", _av_err2str(ret));
+    fflush(stderr);
+    av_packet_unref(&output_packet);
+    return;
+  }
+
+  write_packet(&output_packet, video_st);
 }
 
 void AvCodec::audio_loop() {
@@ -558,11 +445,298 @@ void AvCodec::audio_loop() {
     if (selected_audio_id < 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } else {
-      std::scoped_lock lock(writing_mutex);
+      if (av_compare_ts(audio_st.next_pts, audio_st.enc->time_base,
+                        video_st.last_pts - 5, video_st.enc->time_base) <= 0) {
+        // audio and video might be out of sync
+        audio_st.next_pts =
+            av_rescale_q(video_st.last_pts, video_st.enc->time_base,
+                         audio_st.enc->time_base);
+      }
       while (av_compare_ts(audio_st.next_pts, audio_st.enc->time_base,
                            video_st.next_pts, video_st.enc->time_base) <= 0) {
-        write_audio_frame(selected_audio_id);
+        const int output_frame_size = audio_st.enc->frame_size;
+        InputStream &st = *audio_input_st[selected_audio_id];
+
+        while (av_audio_fifo_size(audio_st.fifo) < output_frame_size) {
+          read_decode_convert_and_store(audio_st.fifo, st.ifmt_ctx, st.dec,
+                                        audio_st.enc, st.swr_ctx);
+        }
+
+        while (av_audio_fifo_size(audio_st.fifo) >= output_frame_size) {
+          load_encode_and_write(audio_st.fifo, ofmt_ctx, audio_st.enc);
+        }
       }
     }
   }
+}
+
+int AvCodec::add_samples_to_fifo(AVAudioFifo *fifo,
+                                 uint8_t **converted_input_samples,
+                                 const int frame_size) {
+  int error;
+
+  if ((error = av_audio_fifo_realloc(
+           fifo, av_audio_fifo_size(fifo) + frame_size)) < 0) {
+    fprintf(stderr, "Could not reallocate FIFO\n");
+    return error;
+  }
+
+  if (av_audio_fifo_write(fifo,
+                          reinterpret_cast<void **>(converted_input_samples),
+                          frame_size) < frame_size) {
+    fprintf(stderr, "Could not write data to FIFO\n");
+    return AVERROR_EXIT;
+  }
+  return 0;
+}
+
+int AvCodec::read_decode_convert_and_store(
+    AVAudioFifo *fifo, AVFormatContext *input_format_context,
+    AVCodecContext *input_codec_context, AVCodecContext *output_codec_context,
+    SwrContext *resampler_context) {
+  AVFrame *input_frame = NULL;
+  uint8_t **converted_input_samples = NULL;
+  int data_present = 0;
+  int ret = AVERROR_EXIT;
+
+  if (init_input_frame(&input_frame)) { goto cleanup; }
+  if (decode_audio_frame(input_frame, input_format_context, input_codec_context,
+                         &data_present)) {
+    goto cleanup;
+  }
+  if (data_present) {
+    if (init_converted_samples(&converted_input_samples, output_codec_context,
+                               input_frame->nb_samples)) {
+      goto cleanup;
+    }
+
+    av_frame_make_writable(input_frame);
+
+    if (convert_samples(
+            const_cast<const uint8_t **>(input_frame->extended_data),
+            converted_input_samples, input_frame->nb_samples,
+            resampler_context)) {
+      goto cleanup;
+    }
+
+    if (add_samples_to_fifo(fifo, converted_input_samples,
+                            input_frame->nb_samples)) {
+      goto cleanup;
+    }
+  }
+  ret = 0;
+
+cleanup:
+  if (converted_input_samples) {
+    av_freep(&converted_input_samples[0]);
+    free(converted_input_samples);
+    converted_input_samples = nullptr;
+  }
+  av_frame_free(&input_frame);
+
+  return ret;
+}
+
+int AvCodec::init_input_frame(AVFrame **frame) {
+  if (!(*frame = av_frame_alloc())) {
+    fprintf(stderr, "Could not allocate input frame\n");
+    return AVERROR(ENOMEM);
+  }
+  return 0;
+}
+
+int AvCodec::decode_audio_frame(AVFrame *frame,
+                                AVFormatContext *input_format_context,
+                                AVCodecContext *input_codec_context,
+                                int *data_present) {
+  AVPacket input_packet;
+  int error;
+  init_packet(&input_packet);
+
+  if ((error = av_read_frame(input_format_context, &input_packet)) < 0) {
+    fprintf(stderr, "Could not read frame (error '%s')\n", _av_err2str(error));
+    return error;
+  }
+
+  if ((error = avcodec_send_packet(input_codec_context, &input_packet)) < 0) {
+    fprintf(stderr, "Could not send packet for decoding (error '%s')\n",
+            _av_err2str(error));
+    return error;
+  }
+
+  error = avcodec_receive_frame(input_codec_context, frame);
+  if (error == AVERROR(EAGAIN)) {
+    error = 0;
+    goto cleanup;
+  } else if (error == AVERROR_EOF) {
+    error = 0;
+    goto cleanup;
+  } else if (error < 0) {
+    fprintf(stderr, "Could not decode frame (error '%s')\n",
+            _av_err2str(error));
+    goto cleanup;
+  } else {
+    *data_present = 1;
+    goto cleanup;
+  }
+
+cleanup:
+  av_packet_unref(&input_packet);
+  return error;
+}
+
+int AvCodec::init_converted_samples(uint8_t ***converted_input_samples,
+                                    AVCodecContext *output_codec_context,
+                                    int frame_size) {
+  int error;
+
+  if (!(*converted_input_samples = static_cast<uint8_t **>(
+            calloc(output_codec_context->channels,
+                   sizeof(**converted_input_samples))))) {
+    fprintf(stderr, "Could not allocate converted input sample pointers\n");
+    return AVERROR(ENOMEM);
+  }
+
+  if ((error = av_samples_alloc(*converted_input_samples, NULL,
+                                output_codec_context->channels, frame_size,
+                                output_codec_context->sample_fmt, 0)) < 0) {
+    fprintf(stderr, "Could not allocate converted input samples (error '%s')\n",
+            _av_err2str(error));
+    av_freep(&(*converted_input_samples)[0]);
+    free(*converted_input_samples);
+    *converted_input_samples = nullptr;
+    return error;
+  }
+  return 0;
+}
+
+int AvCodec::convert_samples(const uint8_t **input_data,
+                             uint8_t **converted_data, const int frame_size,
+                             SwrContext *resample_context) {
+  int error;
+
+  if ((error = swr_convert(resample_context, converted_data, frame_size,
+                           input_data, frame_size)) < 0) {
+    fprintf(stderr, "Could not convert input samples (error '%s')\n",
+            _av_err2str(error));
+    return error;
+  }
+
+  return 0;
+}
+
+void AvCodec::init_packet(AVPacket *packet) {
+  av_init_packet(packet);
+  packet->data = NULL;
+  packet->size = 0;
+}
+
+int AvCodec::init_fifo(AVAudioFifo **fifo,
+                       AVCodecContext *output_codec_context) {
+  if (!(*fifo = av_audio_fifo_alloc(output_codec_context->sample_fmt,
+                                    output_codec_context->channels, 1))) {
+    fprintf(stderr, "Could not allocate FIFO\n");
+    return AVERROR(ENOMEM);
+  }
+  return 0;
+}
+
+int AvCodec::load_encode_and_write(AVAudioFifo *fifo,
+                                   AVFormatContext *output_format_context,
+                                   AVCodecContext *output_codec_context) {
+  AVFrame *output_frame;
+  const int frame_size =
+      FFMIN(av_audio_fifo_size(fifo), output_codec_context->frame_size);
+  int data_written;
+
+  if (init_output_frame(&output_frame, output_codec_context, frame_size)) {
+    return AVERROR_EXIT;
+  }
+
+  if (av_audio_fifo_read(fifo, reinterpret_cast<void **>(output_frame->data),
+                         frame_size) < frame_size) {
+    fprintf(stderr, "Could not read data from FIFO\n");
+    av_frame_free(&output_frame);
+    return AVERROR_EXIT;
+  }
+
+  if (encode_audio_frame(output_frame, output_format_context,
+                         output_codec_context, &data_written)) {
+    av_frame_free(&output_frame);
+    return AVERROR_EXIT;
+  }
+  av_frame_free(&output_frame);
+  return 0;
+}
+
+int AvCodec::init_output_frame(AVFrame **frame,
+                               AVCodecContext *output_codec_context,
+                               int frame_size) {
+  int error;
+
+  if (!(*frame = av_frame_alloc())) {
+    fprintf(stderr, "Could not allocate output frame\n");
+    return AVERROR_EXIT;
+  }
+
+  (*frame)->nb_samples = frame_size;
+  (*frame)->channel_layout = output_codec_context->channel_layout;
+  (*frame)->format = output_codec_context->sample_fmt;
+  (*frame)->sample_rate = output_codec_context->sample_rate;
+
+  if ((error = av_frame_get_buffer(*frame, 0)) < 0) {
+    fprintf(stderr, "Could not allocate output frame samples (error '%s')\n",
+            _av_err2str(error));
+    av_frame_free(frame);
+    return error;
+  }
+
+  return 0;
+}
+
+int AvCodec::encode_audio_frame(AVFrame *frame,
+                                AVFormatContext *output_format_context,
+                                AVCodecContext *output_codec_context,
+                                int *data_present) {
+  AVPacket output_packet;
+  int error;
+  init_packet(&output_packet);
+
+  if (frame) {
+    frame->pts = audio_st.next_pts;
+    audio_st.next_pts += frame->nb_samples;
+  }
+
+  error = avcodec_send_frame(output_codec_context, frame);
+  if (error == AVERROR_EOF) {
+    error = 0;
+    av_packet_unref(&output_packet);
+    return error;
+  } else if (error < 0) {
+    fprintf(stderr, "Could not send packet for encoding (error '%s')\n",
+            _av_err2str(error));
+    return error;
+  }
+
+  error = avcodec_receive_packet(output_codec_context, &output_packet);
+  if (error == AVERROR(EAGAIN)) {
+    error = 0;
+    av_packet_unref(&output_packet);
+    return error;
+  } else if (error == AVERROR_EOF) {
+    error = 0;
+    av_packet_unref(&output_packet);
+    return error;
+  } else if (error < 0) {
+    fprintf(stderr, "Could not encode frame (error '%s')\n",
+            _av_err2str(error));
+    av_packet_unref(&output_packet);
+    return error;
+  } else {
+    *data_present = 1;
+  }
+
+  write_packet(&output_packet, audio_st);
+
+  return error;
 }
