@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <random>
 #include <thread>
@@ -306,8 +307,9 @@ void bg_main_loop(const double width, const double height, const double fps,
         }
         renderer->render(*bg, -1);
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(33));
     } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(std::lround(std::ceil((1.0 / fps * 1000)))));
   }
 }
 

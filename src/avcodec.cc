@@ -373,15 +373,15 @@ void AvCodec::write_frame(OutputStream &stream) {
   pkt.stream_index = stream.st->index;
   pkt.pos = -1;
 
-  if (stream.enc->frame_number % 300 == 0) {
+  if (stream.enc->frame_number % 307 == 0) {
     printf(
         "Frame (%d) pts %lld key_frame %d [coded_picture_number "
         "%d,"
-        "display_picture_number %d] %d %d\n",
+        "display_picture_number %d] stream_index=%d index=%d nb_samples=%d\n",
         stream.enc->frame_number, static_cast<long long>(stream.frame->pts),
         stream.frame->key_frame, stream.frame->coded_picture_number,
         stream.frame->display_picture_number, pkt.stream_index,
-        stream.st->index);
+        stream.st->index, stream.frame->nb_samples);
   }
 
   av_interleaved_write_frame(ofmt_ctx, &pkt);
