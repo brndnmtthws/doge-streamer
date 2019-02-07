@@ -160,7 +160,8 @@ void camera_main_loop(const int camID, const double width, const double height,
 
   cam_switcher->mark_active(camID, 0);
 
-  cv::Mat fgMask, greyFrame;
+  cv::Mat fgMask, hsvFrame, mask;
+  std::vector<cv::Mat> splitFrame;
   bool motion_before = false;
   bool motion_after = false;
   double area_max = 0;
@@ -198,21 +199,21 @@ void camera_main_loop(const int camID, const double width, const double height,
         processingTime = 0;
       }
 
-      cv::cvtColor(image, greyFrame, cv::COLOR_BGR2HSV);
-      cv::resize(greyFrame, greyFrame, cv::Size(640, 360), 0, 0,
-                 cv::INTER_AREA);
+      cv::cvtColor(image, hsvFrame, cv::COLOR_BGR2HSV);
+      cv::resize(hsvFrame, hsvFrame, cv::Size(640, 360), 0, 0, cv::INTER_AREA);
       // Apply Doge mask
       cv::Scalar lower = cv::Scalar(10, 10, 20);
       cv::Scalar upper = cv::Scalar(40, 200, 200);
 
-      cv::Mat mask;
-      cv::inRange(greyFrame, lower, upper, mask);
-      cv::bitwise_and(greyFrame, greyFrame, mask);
+      cv::inRange(hsvFrame, lower, upper, mask);
+      cv::bitwise_and(hsvFrame, hsvFrame, mask);
 
-      cv::cvtColor(image, greyFrame, cv::COLOR_BGR2GRAY);
-      cv::GaussianBlur(greyFrame, greyFrame, cv::Size(21, 21), 0);
+      // Split into separate channels
+      cv::split(hsvFrame, splitFrame);
+      // Take only the V (value) channel
+      cv::GaussianBlur(splitFrame[2], hsvFrame, cv::Size(21, 21), 0);
 
-      bg->apply(greyFrame, fgMask);
+      bg->apply(hsvFrame, fgMask);
       cv::morphologyEx(fgMask, fgMask, cv::MORPH_OPEN, kernel);
 
       std::vector<std::vector<cv::Point>> cnts;
