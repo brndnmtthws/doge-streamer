@@ -202,8 +202,8 @@ void camera_main_loop(const int camID, const double width, const double height,
       cv::cvtColor(image, hsvFrame, cv::COLOR_BGR2HSV);
       cv::resize(hsvFrame, hsvFrame, cv::Size(640, 360), 0, 0, cv::INTER_AREA);
       // Apply Doge mask
-      cv::Scalar lower = cv::Scalar(10, 10, 20);
-      cv::Scalar upper = cv::Scalar(40, 200, 200);
+      cv::Scalar lower = cv::Scalar(10, 10, 10);
+      cv::Scalar upper = cv::Scalar(40, 240, 240);
 
       cv::inRange(hsvFrame, lower, upper, mask);
       cv::bitwise_and(hsvFrame, hsvFrame, mask);
