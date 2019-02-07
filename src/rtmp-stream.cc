@@ -198,9 +198,18 @@ void camera_main_loop(const int camID, const double width, const double height,
         processingTime = 0;
       }
 
-      cv::cvtColor(image, greyFrame, cv::COLOR_BGR2GRAY);
+      cv::cvtColor(image, greyFrame, cv::COLOR_BGR2HSV);
       cv::resize(greyFrame, greyFrame, cv::Size(640, 360), 0, 0,
-                 cv::INTER_CUBIC);
+                 cv::INTER_AREA);
+      // Apply Doge mask
+      cv::Scalar lower = cv::Scalar(10, 10, 20);
+      cv::Scalar upper = cv::Scalar(40, 200, 200);
+
+      cv::Mat mask;
+      cv::inRange(greyFrame, lower, upper, mask);
+      cv::bitwise_and(greyFrame, greyFrame, mask);
+
+      cv::cvtColor(image, greyFrame, cv::COLOR_BGR2GRAY);
       cv::GaussianBlur(greyFrame, greyFrame, cv::Size(21, 21), 0);
 
       bg->apply(greyFrame, fgMask);
@@ -243,7 +252,7 @@ void camera_main_loop(const int camID, const double width, const double height,
       }
       motion_before = motion_after;
 
-      if (elapsed_motion >= std::chrono::seconds(1)) {
+      if (elapsed_motion >= std::chrono::milliseconds(1500)) {
         cv::putText(image, "Doge Detected", cv::Point(70, 50),
                     cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255, 200), 2);
 
@@ -257,7 +266,6 @@ void camera_main_loop(const int camID, const double width, const double height,
         // Is this camera current the top cam? If yes, render it.
         renderer->render(image, camID);
       }
-
     } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
   } while (!end_of_stream && stream_state == stream_on);
 
