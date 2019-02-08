@@ -29,6 +29,7 @@ RUN mkdir build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang-7 \
   -DCMAKE_CXX_COMPILER=clang++-7 \
+  -DCMAKE_PREFIX_PATH=/opt/opencv;/opt/ffmpeg \
   && make -j5 \
   && make -j5 install
 
