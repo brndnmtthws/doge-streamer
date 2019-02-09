@@ -6,8 +6,6 @@ RUN apt-get update -qq \
   && apt-get update -qq \
   && DEBIAN_FRONTEND=noninteractive apt-get install -yqq \
   clang-7           \
-  libc++-7-dev      \
-  libc++abi-7-dev   \
   cmake             \
   autoconf          \
   automake          \
