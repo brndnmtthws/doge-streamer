@@ -6,6 +6,8 @@ RUN apt-get update -qq \
   && apt-get update -qq \
   && DEBIAN_FRONTEND=noninteractive apt-get install -yqq \
   clang-7           \
+  libc++-7-dev      \
+  libc++abi-7-dev   \
   cmake             \
   autoconf          \
   automake          \
@@ -22,6 +24,7 @@ COPY scripts/build-deps.sh /src
 RUN /src/build-deps.sh
 
 COPY . /src
+ENV PKG_CONFIG_PATH /opt/opencv/lib/pkgconfig:/opt/ffmpeg/lib/pkgconfig
 
 RUN mkdir build \
   && cd build \
@@ -29,14 +32,11 @@ RUN mkdir build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang-7 \
   -DCMAKE_CXX_COMPILER=clang++-7 \
-  -DCMAKE_PREFIX_PATH=/opt/opencv;/opt/ffmpeg \
-  && make -j5 \
+  && make VERBOSE=1 -j5 \
   && make -j5 install
 
 FROM ubuntu:bionic
 
-COPY --from=build /opt/ffmpeg /opt/ffmpeg
-COPY --from=build /opt/opencv /opt/opencv
 COPY --from=build /opt/doge /opt/doge
 
 ENTRYPOINT [ "/opt/doge/bin/doge-streamer" ]
