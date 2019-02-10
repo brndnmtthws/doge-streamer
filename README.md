@@ -19,10 +19,11 @@ Features:
 - automatically switches to active camera
 - displays an image when cameras are inactive
 - stream can be controlled remotely using [doge-stream-helper](https://github.com/brndnmtthws/doge-stream-helper)
+- sound from one audio source
 
 TODO:
 
-- make sound work (there's some audio code, but it doesn't work, as I have not figured out the correct incantation pattern to make ffmpeg do what I want)
+- better audio input handling
 - add delightful background music
 - train a TensorFlow model to detect Doge? perhaps use a combination of motion detection and an RNN model?
 
