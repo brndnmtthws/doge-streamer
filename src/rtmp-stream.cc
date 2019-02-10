@@ -138,9 +138,12 @@ void camera_main_loop(const int camID, const double width, const double height,
   auto bg = cv::createBackgroundSubtractorMOG2(400, 25, true);
   auto kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Point(3, 3));
 
+  assert(cam.isOpened());
+
   // Read one frame
   cam >> image;
   if (image.empty()) {
+    printf("got an empty image from camID=%d\n", camID);
     cam.release();
     cam_threads->remove(camID);
     return;
@@ -173,7 +176,10 @@ void camera_main_loop(const int camID, const double width, const double height,
   do {
     try {
       cam >> image;
-      if (image.empty()) { break; }
+      if (image.empty()) {
+        printf("got an empty image from camID=%d\n", camID);
+        continue;
+      }
 
       nFrames++;
       if (nFrames % 300 == 0) {
@@ -327,12 +333,12 @@ void stream_video(double width, double height, double fps, int bitrate,
                   const std::string &audio_format, const bool audio_out,
                   const std::string &video_preset,
                   const std::string &video_keyframe_group_size,
-                  int cam_idx_start, int cam_idx_stop, int audio_idx_start,
+                  int cam_idx_start, int cam_idx_stop, int audio_idx,
                   const std::string &video_bufsize,
                   const std::string &video_tune) {
   AvCodec avCodec(width, height, fps, bitrate, codec_profile, server,
                   audio_format, audio_out, video_preset,
-                  video_keyframe_group_size, audio_idx_start, video_bufsize,
+                  video_keyframe_group_size, audio_idx, video_bufsize,
                   video_tune);
   CamThreads cam_threads;
   CamSwitcher cam_switcher;
@@ -342,6 +348,8 @@ void stream_video(double width, double height, double fps, int bitrate,
       [width, height, fps, &renderer, &cam_switcher] {
         bg_main_loop(width, height, fps, &renderer, &cam_switcher);
       });
+
+  avCodec.init_audio();
 
   for (int i = 0; i < 20 && !end_of_stream; ++i) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -357,7 +365,6 @@ void stream_video(double width, double height, double fps, int bitrate,
           cam.release();
           std::this_thread::sleep_for(std::chrono::seconds(5));
         }
-        avCodec.init_audio(i);
         auto ptr = std::make_shared<std::thread>(
             [i, width, height, fps, &renderer, &cam_threads, &cam_switcher] {
               camera_main_loop(i, width, height, fps, &renderer, &cam_threads,
@@ -398,7 +405,7 @@ int main(int argc, char *argv[]) {
   std::string video_tune = "zerolatency";
   int cam_idx_start = 0;
   int cam_idx_stop = 4;
-  int audio_idx_start = 0;
+  int audio_idx = 0;
   bool dump_log = false;
   bool audio_out = false;
 
@@ -411,9 +418,8 @@ int main(int argc, char *argv[]) {
        (option("-x", "--cam-index-stop") &
         value("cam_idx_stop", cam_idx_stop)) %
            "stopping cam index (default: 4)",
-       (option("-s", "--audio-index") &
-        value("audio_idx_start", audio_idx_start)) %
-           "starting audio (sound card) index (default: 0)",
+       (option("-s", "--audio-index") & value("audio_idx", audio_idx)) %
+           "audio (sound card) index (default: 0)",
        (option("-f", "--fps") & value("fps", fps)) %
            "frames-per-second (default: 30)",
        (option("-w", "--width") & value("width", width)) %
@@ -478,7 +484,7 @@ int main(int argc, char *argv[]) {
 
   stream_video(width, height, fps, bitrate, h264profile, outputServer,
                audio_format, audio_out, video_preset, video_keyframe_group_size,
-               cam_idx_start, cam_idx_stop, audio_idx_start, video_bufsize,
+               cam_idx_start, cam_idx_stop, audio_idx, video_bufsize,
                video_tune);
 
   if (!state_url.empty()) { check_thread.join(); }
