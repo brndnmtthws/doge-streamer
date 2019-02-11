@@ -27,6 +27,8 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
                  const std::string &video_preset,
                  const std::string &video_keyframe_group_size, int audio_idx,
                  const std::string &video_bufsize,
+                 const std::string &video_minrate,
+                 const std::string &video_maxrate,
                  const std::string &video_tune)
     : ofmt_ctx(nullptr),
       selected_audio_id(-1),
@@ -36,6 +38,8 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
       video_keyframe_group_size(video_keyframe_group_size),
       audio_idx(audio_idx),
       video_bufsize(video_bufsize),
+      video_minrate(video_minrate),
+      video_maxrate(video_maxrate),
       video_tune(video_tune) {
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
   av_register_all();
@@ -278,7 +282,9 @@ void AvCodec::initialize_video_codec_stream(const std::string &codec_profile) {
   av_dict_set(&codec_options, "preset", video_preset.c_str(), 0);
   av_dict_set(&codec_options, "tune", video_tune.c_str(), 0);
   av_dict_set(&codec_options, "g", video_keyframe_group_size.c_str(), 0);
-  av_dict_set(&codec_options, "video_bufsize", video_bufsize.c_str(), 0);
+  av_dict_set(&codec_options, "bufsize", video_bufsize.c_str(), 0);
+  av_dict_set(&codec_options, "minrate", video_minrate.c_str(), 0);
+  av_dict_set(&codec_options, "maxrate", video_maxrate.c_str(), 0);
 
   // open video encoder
   ret = avcodec_open2(video_st.enc, video_st.codec, &codec_options);

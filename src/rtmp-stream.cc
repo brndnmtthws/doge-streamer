@@ -335,11 +335,13 @@ void stream_video(double width, double height, double fps, int bitrate,
                   const std::string &video_keyframe_group_size,
                   int cam_idx_start, int cam_idx_stop, int audio_idx,
                   const std::string &video_bufsize,
+                  const std::string &video_minrate,
+                  const std::string &video_maxrate,
                   const std::string &video_tune) {
   AvCodec avCodec(width, height, fps, bitrate, codec_profile, server,
                   audio_format, audio_out, video_preset,
                   video_keyframe_group_size, audio_idx, video_bufsize,
-                  video_tune);
+                  video_minrate, video_maxrate, video_tune);
   CamThreads cam_threads;
   CamSwitcher cam_switcher;
   Renderer renderer(&avCodec);
@@ -393,7 +395,7 @@ void my_handler(int s) {
 }
 
 int main(int argc, char *argv[]) {
-  int width = 1920, height = 1080, bitrate = 5500000;
+  int width = 1920, height = 1080, bitrate = 5 * 1024 * 1024;
   double fps = 25;
   std::string h264profile = "high";
   std::string audio_format = "alsa";
@@ -401,7 +403,9 @@ int main(int argc, char *argv[]) {
   std::string video_preset = "medium";
   std::string video_keyframe_group_size = "90";
   std::string state_url = "";
-  std::string video_bufsize = "5500k";
+  std::string video_bufsize = "10M";
+  std::string video_minrate = "5M";
+  std::string video_maxrate = "5M";
   std::string video_tune = "zerolatency";
   int cam_idx_start = 0;
   int cam_idx_stop = 4;
@@ -427,7 +431,7 @@ int main(int argc, char *argv[]) {
        (option("-h", "--height") & value("height", height)) %
            "video height (default: 1080)",
        (option("-b", "--bitrate") & value("bitrate", bitrate)) %
-           "stream bitrate in kb/s (default: 5500000)",
+           "stream bitrate in kb/s (default: 5242880)",
        (option("-p", "--profile") & value("profile", h264profile)) %
            "H264 codec profile (baseline | high | high10 | high422 | "
            "high444 | main) (default: high)",
@@ -436,7 +440,11 @@ int main(int argc, char *argv[]) {
            "keyframe group size in number of frames (default: 90)",
        (option("-z", "--video-bufsize") &
         value("video-bufsize", video_bufsize)) %
-           "stream buffer size (default: 5500k)",
+           "stream buffer size (default: 10M)",
+       (option("--video-minrate") & value("video-minrate", video_minrate)) %
+           "stream minimum bitrate (default: 5M)",
+       (option("--video-maxrate") & value("video-maxrate", video_maxrate)) %
+           "stream maximum bitrate (default: 5M)",
        (option("-n", "--video-tune") & value("video-tune", video_tune)) %
            "tune parameter for x264 (default: zerolatency)",
        (option("-t", "--preset") & value("video-tune", video_preset)) %
@@ -485,7 +493,7 @@ int main(int argc, char *argv[]) {
   stream_video(width, height, fps, bitrate, h264profile, outputServer,
                audio_format, audio_out, video_preset, video_keyframe_group_size,
                cam_idx_start, cam_idx_stop, audio_idx, video_bufsize,
-               video_tune);
+               video_minrate, video_maxrate, video_tune);
 
   if (!state_url.empty()) { check_thread.join(); }
   return 0;
