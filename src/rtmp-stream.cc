@@ -393,15 +393,15 @@ void my_handler(int s) {
 }
 
 int main(int argc, char *argv[]) {
-  int width = 1920, height = 1080, bitrate = 5000 * 1024;
-  double fps = 30;
+  int width = 1920, height = 1080, bitrate = 5500000;
+  double fps = 25;
   std::string h264profile = "high";
   std::string audio_format = "alsa";
   std::string outputServer = "rtmp://localhost/live/stream";
-  std::string video_preset = "veryfast";
+  std::string video_preset = "medium";
   std::string video_keyframe_group_size = "90";
   std::string state_url = "";
-  std::string video_bufsize = "10000k";
+  std::string video_bufsize = "5500k";
   std::string video_tune = "zerolatency";
   int cam_idx_start = 0;
   int cam_idx_stop = 4;
@@ -421,13 +421,13 @@ int main(int argc, char *argv[]) {
        (option("-s", "--audio-index") & value("audio_idx", audio_idx)) %
            "audio (sound card) index (default: 0)",
        (option("-f", "--fps") & value("fps", fps)) %
-           "frames-per-second (default: 30)",
+           "frames-per-second (default: 25)",
        (option("-w", "--width") & value("width", width)) %
            "video width (default: 1920)",
        (option("-h", "--height") & value("height", height)) %
            "video height (default: 1080)",
        (option("-b", "--bitrate") & value("bitrate", bitrate)) %
-           "stream bitrate in kb/s (default: 5120000)",
+           "stream bitrate in kb/s (default: 5500000)",
        (option("-p", "--profile") & value("profile", h264profile)) %
            "H264 codec profile (baseline | high | high10 | high422 | "
            "high444 | main) (default: high)",
@@ -436,11 +436,11 @@ int main(int argc, char *argv[]) {
            "keyframe group size in number of frames (default: 90)",
        (option("-z", "--video-bufsize") &
         value("video-bufsize", video_bufsize)) %
-           "stream buffer size (default: 10000k)",
+           "stream buffer size (default: 5500k)",
        (option("-n", "--video-tune") & value("video-tune", video_tune)) %
            "tune parameter for x264 (default: zerolatency)",
        (option("-t", "--preset") & value("video-tune", video_preset)) %
-           "x264 encoding preset (default: veryfast)",
+           "x264 encoding preset (default: medium)",
        (option("-u", "--audio-format") & value("audio-format", audio_format)) %
            "Audio input FFmpeg format (default: alsa)",
        (option("-a", "--audio-out").set(audio_out)) %
