@@ -15,7 +15,7 @@ build_image:
     - docker:dind
 
   variables:
-    CONTAINER_IMAGE: registry.gitlab.com/$CI_PROJECT_PATH
+    CONTAINER_IMAGE: registry.torchy.io/$CI_PROJECT_PATH
     DOCKER_HOST: tcp://localhost:2375
     DOCKER_DRIVER: overlay2
 
