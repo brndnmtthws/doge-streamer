@@ -1,10 +1,32 @@
-image: ubuntu:bionic
-before_script:
-  - apt-get update -qqy
-  - DEBIAN_FRONTEND=noninteractive apt-get install -qqy g++ cmake libopencv-dev libopencv-highgui-dev libopencv-video-dev libopencv-imgproc-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev libswresample-dev libswscale-dev
-build:
+build_code:
+  image: ubuntu:bionic
+  before_script:
+    - apt-get update -qqy
+    - DEBIAN_FRONTEND=noninteractive apt-get install -qqy g++ cmake libopencv-dev libopencv-highgui-dev libopencv-video-dev libopencv-imgproc-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavresample-dev libavutil-dev libswresample-dev libswscale-dev
   script:
     - mkdir build
     - cd build
     - cmake ..
     - make
+build_image:
+  image: docker:stable
+
+  services:
+    - docker:dind
+
+  variables:
+    CONTAINER_IMAGE: registry.gitlab.com/$CI_PROJECT_PATH
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_DRIVER: overlay2
+
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN registry.gitlab.com
+
+  script:
+    - docker pull $CONTAINER_IMAGE:latest || true
+    - docker pull $CONTAINER_IMAGE:builder || true
+    - docker build --target builder --cache-from $CONTAINER_IMAGE:builder --tag $CONTAINER_IMAGE:builder .
+    - docker build --cache-from $CONTAINER_IMAGE:latest --tag $CONTAINER_IMAGE:$CI_COMMIT_SHA --tag $CONTAINER_IMAGE:latest .
+    - docker push $CONTAINER_IMAGE:$CI_COMMIT_SHA
+    - docker push $CONTAINER_IMAGE:latest
+    - docker push $CONTAINER_IMAGE:builder

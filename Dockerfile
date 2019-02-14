@@ -1,4 +1,4 @@
-FROM ubuntu:bionic AS build
+FROM ubuntu:bionic AS builder
 
 RUN apt-get update -qq \
   && DEBIAN_FRONTEND=noninteractive apt-get install -yqq \
