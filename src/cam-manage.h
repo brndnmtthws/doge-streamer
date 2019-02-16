@@ -27,6 +27,7 @@ class CamThreads {
 class Renderer {
   std::mutex mutex;
   AvCodec *avCodec;
+  std::chrono::high_resolution_clock::time_point last_frame_rendered;
 
  public:
   Renderer(AvCodec *avCodec);

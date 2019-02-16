@@ -97,6 +97,7 @@ class AvCodec {
   std::string video_tune;
   bool audio_out;
   int audio_idx;
+  double fps;
 
   void initialize_avformat_context(const char *format_name);
   void initialize_io_context(const char *output);
@@ -155,6 +156,8 @@ class AvCodec {
 
   void init_audio();
   void del_audio(int id);
+
+  double get_fps() { return fps; }
 
   void sws_scale_video(const uint8_t *const image_data[], const int stride[],
                        int image_rows);

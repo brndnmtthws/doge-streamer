@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <random>
 #include <thread>
@@ -23,10 +24,14 @@
 
 #define HTTP_IMPLEMENTATION
 
-#include "3rdparty/clipp.h"
-#include "3rdparty/http.h"
-#include "3rdparty/picojson.h"
+#include <clipp.h>
+#include <http.h>
+#include <picojson.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
+
 #include "cam-manage.h"
+#include "log.h"
 
 using clipp::option, clipp::value;
 
@@ -44,7 +49,7 @@ void check_stream_state(const std::string &url) {
   do {
     http_t *request = http_get(url.c_str(), NULL);
     if (!request) {
-      printf("Invalid request.\n");
+      log_error("Invalid request");
       exit(1);
     }
 
@@ -58,8 +63,8 @@ void check_stream_state(const std::string &url) {
     }
 
     if (status == HTTP_STATUS_FAILED) {
-      printf("HTTP request failed (%d): %s.\n", request->status_code,
-             request->reason_phrase);
+      log_error("HTTP request failed ({}): {}", request->status_code,
+                request->reason_phrase);
     } else {
       using picojson::object, picojson::parse;
       picojson::value jv;
@@ -74,16 +79,16 @@ void check_stream_state(const std::string &url) {
           } else if (state == "off") {
             stream_state = stream_off;
             end_of_stream = true;
-            printf("shutting off stream because state=off\n");
+            log_info("shutting off stream because state=off");
           } else if (state == "paused") {
             stream_state = stream_paused;
           }
         } else {
-          printf("unexpected response when checking stream state: %s\n",
-                 static_cast<const char *>(request->response_data));
+          log_warn("unexpected response when checking stream state: {}",
+                   static_cast<const char *>(request->response_data));
         }
       } else {
-        printf("error parsing response from stream check: %s\n", err.c_str());
+        log_error("error parsing response from stream check: {}", err);
       }
     }
 
@@ -109,7 +114,7 @@ cv::VideoCapture get_device(int camID, double width, double height,
 
 std::shared_ptr<cv::Mat> image_open(const std::string &fn) {
   const std::string paths[] = {"/opt/doge/artwork/", "./"};
-  printf("image_open('%s')\n", fn.c_str());
+  log_debug("image_open('{}')\n", fn.c_str());
   for (auto p : paths) {
     struct stat stat_result;
     std::string name(p + fn);
@@ -117,25 +122,26 @@ std::shared_ptr<cv::Mat> image_open(const std::string &fn) {
       auto ptr = std::make_shared<cv::Mat>(
           cv::imread(name.c_str(), cv::IMREAD_UNCHANGED));
       if (ptr->empty()) {
-        printf("can't read %s\n", fn.c_str());
+        log_critical("can't read {}", fn.c_str());
         exit(1);
       }
       return ptr;
     }
   }
-  printf("can't read %s\n", fn.c_str());
+  log_critical("can't read {}", fn.c_str());
   exit(1);
 }
 
 void camera_main_loop(const int camID, const double width, const double height,
                       const double fps, Renderer *renderer,
-                      CamThreads *cam_threads, CamSwitcher *cam_switcher) {
-  printf("entered camera_main_loop %d\n", camID);
+                      CamThreads *cam_threads, CamSwitcher *cam_switcher,
+                      const bool save_doges) {
+  log_debug("entered camera_main_loop {}", camID);
   auto cam = get_device(camID, width, height, fps);
   std::vector<uint8_t> imgbuf(height * width * 3 + 16);
   cv::Mat image(height, width, CV_8UC3, imgbuf.data(), width * 3);
 
-  auto bg = cv::createBackgroundSubtractorMOG2(400, 25, true);
+  auto bg = cv::createBackgroundSubtractorMOG2(300, 20, true);
   auto kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Point(3, 3));
 
   assert(cam.isOpened());
@@ -143,32 +149,22 @@ void camera_main_loop(const int camID, const double width, const double height,
   // Read one frame
   cam >> image;
   if (image.empty()) {
-    printf("got an empty image from camID=%d\n", camID);
+    log_warn("got an empty image from camID=%d", camID);
     cam.release();
     cam_threads->remove(camID);
     return;
   }
 
-  std::string doge_fn("doge.png");
-  auto doge = image_open(doge_fn);
-  std::vector<cv::Mat> dogeout;
-  cv::split(*doge, dogeout);
-  cv::bitwise_and(dogeout[0], dogeout[0], dogeout[3]);
-  cv::bitwise_and(dogeout[1], dogeout[1], dogeout[3]);
-  cv::bitwise_and(dogeout[2], dogeout[2], dogeout[3]);
-  cv::merge(dogeout, *doge);
-  cv::cvtColor(image, image, cv::COLOR_RGB2RGBA);
-  cv::Mat doge2 = cv::Mat::zeros(image.size(), image.type());
-  doge->copyTo(doge2(cv::Rect(10, 10, doge->cols, doge->rows)));
-
   cam_switcher->mark_active(camID, 0);
 
-  cv::Mat fgMask, hsvFrame, mask;
+  cv::Mat fgMask, hsvFrame, mask, image_copy;
   std::vector<cv::Mat> splitFrame;
   bool motion_before = false;
   bool motion_after = false;
+  bool odd_run = false;
   double area_max = 0;
   auto start = std::chrono::system_clock::now();
+  auto last_saved_at = std::chrono::system_clock::now();
   std::chrono::duration<double> elapsed_motion(0);
   size_t nFrames = 0;
   int64 t0 = cv::getTickCount();
@@ -177,7 +173,7 @@ void camera_main_loop(const int camID, const double width, const double height,
     try {
       cam >> image;
       if (image.empty()) {
-        printf("got an empty image from camID=%d\n", camID);
+        log_warn("got an empty image from camID=%d", camID);
         continue;
       }
 
@@ -185,98 +181,120 @@ void camera_main_loop(const int camID, const double width, const double height,
       if (nFrames % 300 == 0) {
         const int N = 300;
         int64 t1 = cv::getTickCount();
-        std::cout << "rendering=" << cam_switcher->get_top()
-                  << " camID=" << camID << "  Frames captured: "
-                  << cv::format("%5lld", static_cast<long long int>(nFrames))
-                  << "  Average FPS: "
-                  << cv::format("%2.1f",
-                                static_cast<double>(cv::getTickFrequency() * N /
+        log_info(
+            "rendering={} camID={} captured={} Avg FPS={} Avg time per "
+            "frame={} Avg processing time={}",
+            cam_switcher->get_top(), camID,
+            cv::format("%5lld", static_cast<long long int>(nFrames)).c_str(),
+            cv::format("%2.1f", static_cast<double>(cv::getTickFrequency() * N /
                                                     (t1 - t0)))
-                  << "  Average time per frame: "
-                  << cv::format("%3.2f ms", static_cast<double>(
-                                                (t1 - t0) * 1000.0f /
-                                                (N * cv::getTickFrequency())))
-                  << "  Average processing time: "
-                  << cv::format("%3.2f ms", static_cast<double>(
-                                                (processingTime)*1000.0f /
-                                                (N * cv::getTickFrequency())))
-                  << std::endl;
+                .c_str(),
+            cv::format("%3.2f ms",
+                       static_cast<double>((t1 - t0) * 1000.0f /
+                                           (N * cv::getTickFrequency())))
+                .c_str(),
+            cv::format("%3.2f ms",
+                       static_cast<double>((processingTime)*1000.0f /
+                                           (N * cv::getTickFrequency())))
+                .c_str());
+
         t0 = t1;
         processingTime = 0;
       }
 
-      cv::cvtColor(image, hsvFrame, cv::COLOR_BGR2HSV);
-      cv::resize(hsvFrame, hsvFrame, cv::Size(640, 360), 0, 0, cv::INTER_AREA);
-      // Apply Doge mask
-      cv::Scalar lower = cv::Scalar(10, 10, 10);
-      cv::Scalar upper = cv::Scalar(40, 240, 240);
-
-      cv::inRange(hsvFrame, lower, upper, mask);
-      cv::bitwise_and(hsvFrame, hsvFrame, mask);
-
-      // Split into separate channels
-      cv::split(hsvFrame, splitFrame);
-      // Take only the V (value) channel
-      cv::GaussianBlur(splitFrame[2], hsvFrame, cv::Size(21, 21), 0);
-
-      bg->apply(hsvFrame, fgMask);
-      cv::morphologyEx(fgMask, fgMask, cv::MORPH_OPEN, kernel);
-
-      std::vector<std::vector<cv::Point>> cnts;
-      cv::findContours(fgMask, cnts, cv::RETR_EXTERNAL,
-                       cv::CHAIN_APPROX_SIMPLE);
-
-      motion_after = false;
-      for (int i = 0; i < cnts.size(); i++) {
-        if (contourArea(cnts[i]) < 500) {
-          // Ignore tiny areas
-          continue;
-        }
-        area_max = std::max(area_max, contourArea(cnts[i]));
-        motion_after = true;
-      }
-
+      odd_run = !odd_run;
       auto end = std::chrono::system_clock::now();
-      if (motion_after && !motion_before) {
-        // Motion started
-        start = end;
-      }
-      if (motion_after && motion_before) {
-        // Motion continues
-        elapsed_motion = end - start;
-      }
-      if (!motion_after && motion_before) {
-        // Motion stopped
-        elapsed_motion = end - start;
-        std::cout << "camID=" << camID << " motion stopped, lasted "
-                  << elapsed_motion.count() << std::endl;
+      if (odd_run) {
+        cv::cvtColor(image, hsvFrame, cv::COLOR_BGR2HSV);
+        cv::resize(hsvFrame, hsvFrame, cv::Size(640, 360), 0, 0,
+                   cv::INTER_AREA);
+        // Apply Doge mask
+        cv::Scalar lower = cv::Scalar(10, 10, 10);
+        cv::Scalar upper = cv::Scalar(40, 240, 240);
 
-        area_max = 0;
-        if (elapsed_motion >= std::chrono::seconds(1)) {
+        cv::inRange(hsvFrame, lower, upper, mask);
+        cv::bitwise_and(hsvFrame, hsvFrame, mask);
+
+        // Split into separate channels
+        cv::split(hsvFrame, splitFrame);
+        // Take only the V (value) channel
+        cv::GaussianBlur(splitFrame[2], hsvFrame, cv::Size(21, 21), 0);
+
+        bg->apply(hsvFrame, fgMask);
+        cv::morphologyEx(fgMask, fgMask, cv::MORPH_OPEN, kernel);
+
+        std::vector<std::vector<cv::Point>> cnts;
+        cv::findContours(fgMask, cnts, cv::RETR_EXTERNAL,
+                         cv::CHAIN_APPROX_SIMPLE);
+
+        motion_after = false;
+        for (int i = 0; i < cnts.size(); i++) {
+          if (contourArea(cnts[i]) < 500) {
+            // Ignore tiny areas
+            continue;
+          }
+          area_max = std::max(area_max, contourArea(cnts[i]));
+          motion_after = true;
+        }
+
+        if (motion_after && !motion_before) {
+          // Motion started
+          start = end;
+        }
+        if (motion_after && motion_before) {
+          // Motion continues
+          elapsed_motion = end - start;
+        }
+        if (!motion_after && motion_before) {
+          // Motion stopped
+          elapsed_motion = end - start;
+          log_info("camID={} motion stopped, lasted {}s", camID,
+                   elapsed_motion.count());
+
+          area_max = 0;
+          if (elapsed_motion >= std::chrono::milliseconds(1200)) {
+            cam_switcher->mark_active(camID, area_max);
+          }
+          elapsed_motion = std::chrono::seconds(0);
+        }
+        motion_before = motion_after;
+
+        if (elapsed_motion >= std::chrono::milliseconds(1200)) {
           cam_switcher->mark_active(camID, area_max);
         }
-        elapsed_motion = std::chrono::seconds(0);
-      }
-      motion_before = motion_after;
-
-      if (elapsed_motion >= std::chrono::milliseconds(1500)) {
-        cv::putText(image, "Doge Detected", cv::Point(70, 50),
-                    cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255, 200), 2);
-
-        cv::cvtColor(image, image, cv::COLOR_RGB2RGBA);
-        cv::addWeighted(image, 1, doge2, 0.8, 0, image);
-        cv::cvtColor(image, image, cv::COLOR_RGBA2RGB);
-        cam_switcher->mark_active(camID, area_max);
       }
 
+      image.copyTo(image_copy);
       if (cam_switcher->get_top() == camID) {
         // Is this camera current the top cam? If yes, render it.
         renderer->render(image, camID);
+
+        if (save_doges) {
+          auto since_last_save = end - last_saved_at;
+          if (since_last_save >= std::chrono::minutes(1)) {
+            last_saved_at = end;
+            auto timet = std::chrono::system_clock::to_time_t(end);
+            auto t = std::put_time(std::localtime(&timet), "%FZ%T");
+            std::ostringstream ss;
+            ss << "doge/" << camID << "-" << t << ".jpg";
+            cv::imwrite(ss.str(), image_copy);
+          }
+        }
+      } else if (save_doges) {
+        auto since_last_save = end - last_saved_at;
+        if (since_last_save >= std::chrono::minutes(1)) {
+          last_saved_at = end;
+          auto timet = std::chrono::system_clock::to_time_t(end);
+          auto t = std::put_time(std::localtime(&timet), "%FZ%T");
+          std::ostringstream ss;
+          ss << "notdoge/" << camID << "-" << t << ".jpg";
+          cv::imwrite(ss.str(), image_copy);
+        }
       }
-    } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
+    } catch (cv::Exception &e) { log_error("caught exception: {}", e.what()); }
   } while (!end_of_stream && stream_state == stream_on);
 
-  printf("end of camera_main_loop for camID=%d\n", camID);
+  log_debug("end of camera_main_loop for camID={}", camID);
 
   cam_switcher->remove(camID);
   cam_threads->remove(camID);
@@ -295,12 +313,12 @@ std::shared_ptr<cv::Mat> get_bg(
 
 void bg_main_loop(const double width, const double height, const double fps,
                   Renderer *renderer, CamSwitcher *cam_switcher) {
-  printf("entered bg_main_loop\n");
+  log_debug("entered bg_main_loop");
   std::vector<uint8_t> imgbuf(height * width * 3 + 16);
   cv::Mat image(height, width, CV_8UC3, imgbuf.data(), width * 3);
 
   std::vector<std::shared_ptr<cv::Mat>> bg_list;
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 7; ++i) {
     struct stat stat_result;
     std::ostringstream ss;
     ss << "bg" << i + 1 << ".png";
@@ -322,7 +340,7 @@ void bg_main_loop(const double width, const double height, const double fps,
         }
         renderer->render(*bg, -1);
       }
-    } catch (cv::Exception &e) { printf("caught exception: %s\n", e.what()); }
+    } catch (cv::Exception &e) { log_error("caught exception: {}", e.what()); }
     std::this_thread::sleep_for(
         std::chrono::milliseconds(std::lround(std::ceil((1.0 / fps * 1000)))));
   }
@@ -337,7 +355,7 @@ void stream_video(double width, double height, double fps, int bitrate,
                   const std::string &video_bufsize,
                   const std::string &video_minrate,
                   const std::string &video_maxrate,
-                  const std::string &video_tune) {
+                  const std::string &video_tune, const bool save_doges) {
   AvCodec avCodec(width, height, fps, bitrate, codec_profile, server,
                   audio_format, audio_out, video_preset,
                   video_keyframe_group_size, audio_idx, video_bufsize,
@@ -367,16 +385,17 @@ void stream_video(double width, double height, double fps, int bitrate,
           cam.release();
           std::this_thread::sleep_for(std::chrono::seconds(5));
         }
-        auto ptr = std::make_shared<std::thread>(
-            [i, width, height, fps, &renderer, &cam_threads, &cam_switcher] {
-              camera_main_loop(i, width, height, fps, &renderer, &cam_threads,
-                               &cam_switcher);
-            });
+        auto ptr = std::make_shared<std::thread>([i, width, height, fps,
+                                                  &renderer, &cam_threads,
+                                                  &cam_switcher, save_doges] {
+          camera_main_loop(i, width, height, fps, &renderer, &cam_threads,
+                           &cam_switcher, save_doges);
+        });
         cam_threads.add(i, ptr);
         std::this_thread::sleep_for(std::chrono::seconds(20));
       }
     } catch (std::runtime_error &e) {
-      printf("caught exception: %s\n", e.what());
+      log_error("caught exception: {}", e.what());
     }
     cam_threads.join_joinable();
     for (int i = 0; i < 60 && !end_of_stream; ++i) {
@@ -389,14 +408,29 @@ void stream_video(double width, double height, double fps, int bitrate,
 }
 
 void my_handler(int s) {
-  printf("Caught signal %d\n", s);
+  log_info("Caught signal {}", s);
   end_of_stream = true;
   exit(1);
 }
 
+void init_logger(const std::string &log_level) {
+  auto log_level_enum = spdlog::level::from_str(log_level);
+  spdlog::set_level(log_level_enum);
+
+  if (log_level_enum == spdlog::level::debug) {
+    av_log_set_level(AV_LOG_DEBUG);
+  } else if (log_level_enum <= spdlog::level::warn) {
+    av_log_set_level(AV_LOG_VERBOSE);
+  }
+
+  auto console = spdlog::stdout_color_mt("console");
+  auto err_logger = spdlog::stderr_color_mt("stderr");
+  spdlog::set_pattern("[%Y-%m-%dT%H:%M:%S.%e] [%^%l%$] %v");
+}
+
 int main(int argc, char *argv[]) {
   int width = 1920, height = 1080, bitrate = 5 * 1024 * 1024;
-  double fps = 25;
+  double fps = 30;
   std::string h264profile = "high";
   std::string audio_format = "alsa";
   std::string outputServer = "rtmp://localhost/live/stream";
@@ -407,11 +441,12 @@ int main(int argc, char *argv[]) {
   std::string video_minrate = "5M";
   std::string video_maxrate = "5M";
   std::string video_tune = "zerolatency";
+  std::string log_level = "info";
   int cam_idx_start = 0;
   int cam_idx_stop = 4;
   int audio_idx = 0;
-  bool dump_log = false;
   bool audio_out = false;
+  bool save_doges = false;
 
   auto cli =
       ((option("-o", "--output") & value("output", outputServer)) %
@@ -425,7 +460,7 @@ int main(int argc, char *argv[]) {
        (option("-s", "--audio-index") & value("audio_idx", audio_idx)) %
            "audio (sound card) index (default: 0)",
        (option("-f", "--fps") & value("fps", fps)) %
-           "frames-per-second (default: 25)",
+           "frames-per-second (default: 30)",
        (option("-w", "--width") & value("width", width)) %
            "video width (default: 1920)",
        (option("-h", "--height") & value("height", height)) %
@@ -453,28 +488,33 @@ int main(int argc, char *argv[]) {
            "Audio input FFmpeg format (default: alsa)",
        (option("-a", "--audio-out").set(audio_out)) %
            "output audio (default: false)",
+       (option("--save-doges").set(save_doges)) %
+           "save doge images (default: false)",
        (option("-r", "--state-url") & value("state-url", state_url)) %
-           "stream state url for pausing/deactivating stream (default: none)",
-       (option("-l", "--log").set(dump_log)) %
-           "print debug output (default: false)");
+           "stream state url for pausing/deactivating stream (default: "
+           "none)",
+       (option("-l", "--log-level") & value("log-level", log_level)) %
+           "set logging level to one of: trace, debug, info, warning, error, "
+           "critical, off (default: info)");
 
   if (!parse(argc, argv, cli)) {
     std::cout << make_man_page(cli, argv[0]) << std::endl;
     return 1;
   }
 
-  if (dump_log) {
-    av_log_set_level(AV_LOG_DEBUG);
-  } else {
-    av_log_set_level(AV_LOG_VERBOSE);
-  }
+  init_logger(log_level);
+
+  log_info("🦊 Hello and welcome do the Doge streamer :D 🦊");
+  log_info("🦊 Hello and welcome do the Doge streamer :D 🦊");
+  log_info("🦊 Hello and welcome do the Doge streamer :D 🦊");
+  log_info("🦊 Hello and welcome do the Doge streamer :D 🦊");
 
   std::thread check_thread;
   if (!state_url.empty()) {
     check_thread = std::thread([state_url] { check_stream_state(state_url); });
     std::this_thread::sleep_for(std::chrono::seconds(3));
     if (stream_state == stream_off) {
-      printf("exiting\n");
+      log_warn("exiting because stream is off");
       check_thread.join();
       return 0;
     }
@@ -493,7 +533,7 @@ int main(int argc, char *argv[]) {
   stream_video(width, height, fps, bitrate, h264profile, outputServer,
                audio_format, audio_out, video_preset, video_keyframe_group_size,
                cam_idx_start, cam_idx_stop, audio_idx, video_bufsize,
-               video_minrate, video_maxrate, video_tune);
+               video_minrate, video_maxrate, video_tune, save_doges);
 
   if (!state_url.empty()) { check_thread.join(); }
   return 0;

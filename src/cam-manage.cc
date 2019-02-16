@@ -1,4 +1,5 @@
 #include "cam-manage.h"
+#include "log.h"
 
 void CamThreads::add(int camID, std::shared_ptr<std::thread> &thread) {
   std::scoped_lock lock(mutex);
@@ -37,13 +38,24 @@ void CamThreads::join_joinable() {
   }
 }
 
-Renderer::Renderer(AvCodec *avCodec) : avCodec(avCodec) {}
+Renderer::Renderer(AvCodec *avCodec)
+    : avCodec(avCodec),
+      last_frame_rendered(std::chrono::high_resolution_clock::now()) {}
 
 Renderer::~Renderer() {}
 
 void Renderer::render(cv::Mat &image, int id) {
   if (image.empty()) return;
+  auto now = std::chrono::high_resolution_clock::now();
+  const auto min_delay = std::chrono::microseconds(
+      std::lround(std::floor((1.0 / (avCodec->get_fps() + 1) * 1000000))));
   std::scoped_lock lock(mutex);
+  auto difference = min_delay - (now - last_frame_rendered);
+  if (difference > std::chrono::microseconds(0)) {
+    log_debug("rendering too fast: sleeping for {} ticks", difference.count());
+    std::this_thread::sleep_for(difference);
+  }
+  last_frame_rendered = std::chrono::high_resolution_clock::now();
   const int stride[] = {static_cast<int>(image.step[0])};
   avCodec->sws_scale_video(&image.data, stride, image.rows);
   avCodec->rescale_video_frame();
