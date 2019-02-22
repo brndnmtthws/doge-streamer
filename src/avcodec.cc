@@ -281,6 +281,7 @@ void AvCodec::initialize_video_codec_stream(const std::string &codec_profile) {
   av_dict_set(&codec_options, "maxrate", video_maxrate.c_str(), 0);
   av_dict_set(&codec_options, "crf", "23", 0);
   av_dict_set(&codec_options, "b", video_maxrate.c_str(), 0);
+  av_dict_set(&codec_options, "x264opts", "nal-hrd=cbr:force-cfr=1", 0);
 
   // open video encoder
   ret = avcodec_open2(video_st.enc, video_st.codec, &codec_options);
