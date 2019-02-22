@@ -246,7 +246,7 @@ void AvCodec::set_audio_codec_params(double width, double height, int fps,
   audio_st.enc->codec_id = AV_CODEC_ID_AAC;
   audio_st.enc->sample_fmt = audio_st.codec->sample_fmts[0];
   audio_st.enc->bit_rate = 128000;
-  audio_st.enc->sample_rate = 48000;
+  audio_st.enc->sample_rate = 44100;
   audio_st.enc->channels = 2;
   audio_st.enc->codec_type = AVMEDIA_TYPE_AUDIO;
   audio_st.enc->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
@@ -279,6 +279,8 @@ void AvCodec::initialize_video_codec_stream(const std::string &codec_profile) {
   av_dict_set(&codec_options, "bufsize", video_bufsize.c_str(), 0);
   av_dict_set(&codec_options, "minrate", video_minrate.c_str(), 0);
   av_dict_set(&codec_options, "maxrate", video_maxrate.c_str(), 0);
+  av_dict_set(&codec_options, "crf", "23", 0);
+  av_dict_set(&codec_options, "b", video_maxrate.c_str(), 0);
 
   // open video encoder
   ret = avcodec_open2(video_st.enc, video_st.codec, &codec_options);

@@ -141,7 +141,7 @@ void camera_main_loop(const int camID, const double width, const double height,
   std::vector<uint8_t> imgbuf(height * width * 3 + 16);
   cv::Mat image(height, width, CV_8UC3, imgbuf.data(), width * 3);
 
-  auto bg = cv::createBackgroundSubtractorMOG2(300, 20, true);
+  auto bg = cv::createBackgroundSubtractorMOG2(200, 20, true);
   auto kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Point(3, 3));
 
   assert(cam.isOpened());
