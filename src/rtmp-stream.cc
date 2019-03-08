@@ -98,16 +98,16 @@ void check_stream_state(const std::string &url) {
   } while (stream_state != stream_off && !end_of_stream);
 }
 
-cv::VideoCapture get_device(int camID, double width, double height,
-                            double fps) {
-  cv::VideoCapture cam(camID);
-  if (!cam.isOpened()) {
+std::shared_ptr<cv::VideoCapture> get_device(int camID, double width,
+                                             double height, double fps) {
+  auto cam = std::make_shared<cv::VideoCapture>(cv::VideoCapture(camID));
+  if (!cam->isOpened()) {
     throw std::runtime_error("Failed to open video capture device");
   }
 
-  cam.set(CV_CAP_PROP_FRAME_WIDTH, width);
-  cam.set(CV_CAP_PROP_FRAME_HEIGHT, height);
-  cam.set(CV_CAP_PROP_FPS, fps);
+  cam->set(CV_CAP_PROP_FRAME_WIDTH, width);
+  cam->set(CV_CAP_PROP_FRAME_HEIGHT, height);
+  cam->set(CV_CAP_PROP_FPS, fps);
 
   return cam;
 }
@@ -132,25 +132,24 @@ std::shared_ptr<cv::Mat> image_open(const std::string &fn) {
   exit(1);
 }
 
-void camera_main_loop(const int camID, const double width, const double height,
-                      const double fps, Renderer *renderer,
-                      CamThreads *cam_threads, CamSwitcher *cam_switcher,
-                      const bool save_doges) {
+void camera_main_loop(std::shared_ptr<cv::VideoCapture> cam, const int camID,
+                      const double width, const double height, const double fps,
+                      Renderer *renderer, CamThreads *cam_threads,
+                      CamSwitcher *cam_switcher, const bool save_doges) {
   log_debug("entered camera_main_loop {}", camID);
-  auto cam = get_device(camID, width, height, fps);
   std::vector<uint8_t> imgbuf(height * width * 3 + 16);
   cv::Mat image(height, width, CV_8UC3, imgbuf.data(), width * 3);
 
-  auto bg = cv::createBackgroundSubtractorMOG2(200, 20, true);
+  auto bg = cv::createBackgroundSubtractorMOG2(200, 23, true);
   auto kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Point(3, 3));
 
-  assert(cam.isOpened());
+  assert(cam->isOpened());
 
   // Read one frame
-  cam >> image;
+  *cam >> image;
   if (image.empty()) {
     log_warn("got an empty image from camID=%d", camID);
-    cam.release();
+    cam->release();
     cam_threads->remove(camID);
     return;
   }
@@ -171,7 +170,7 @@ void camera_main_loop(const int camID, const double width, const double height,
   int64 processingTime = 0;
   do {
     try {
-      cam >> image;
+      *cam >> image;
       if (image.empty()) {
         log_warn("got an empty image from camID=%d", camID);
         continue;
@@ -298,7 +297,7 @@ void camera_main_loop(const int camID, const double width, const double height,
 
   cam_switcher->remove(camID);
   cam_threads->remove(camID);
-  cam.release();
+  cam->release();
 }
 
 std::shared_ptr<cv::Mat> get_bg(
@@ -371,24 +370,18 @@ void stream_video(double width, double height, double fps, int bitrate,
 
   avCodec.init_audio();
 
-  for (int i = 0; i < 20 && !end_of_stream; ++i) {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-  }
+  std::this_thread::sleep_for(std::chrono::seconds(1));
 
   while (!end_of_stream && stream_state != stream_off) {
     try {
       for (int i = cam_idx_start; i < cam_idx_stop && !end_of_stream; ++i) {
         if (stream_state == stream_paused) { continue; }
         if (cam_threads.has_cam(i)) { continue; }
-        {
-          auto cam = get_device(i, width, height, fps);
-          cam.release();
-          std::this_thread::sleep_for(std::chrono::seconds(5));
-        }
-        auto ptr = std::make_shared<std::thread>([i, width, height, fps,
+        auto cam = get_device(i, width, height, fps);
+        auto ptr = std::make_shared<std::thread>([cam, i, width, height, fps,
                                                   &renderer, &cam_threads,
                                                   &cam_switcher, save_doges] {
-          camera_main_loop(i, width, height, fps, &renderer, &cam_threads,
+          camera_main_loop(cam, i, width, height, fps, &renderer, &cam_threads,
                            &cam_switcher, save_doges);
         });
         cam_threads.add(i, ptr);

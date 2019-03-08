@@ -95,6 +95,7 @@ class AvCodec {
   std::string video_minrate;
   std::string video_maxrate;
   std::string video_tune;
+  int bitrate;
   bool audio_out;
   int audio_idx;
   double fps;

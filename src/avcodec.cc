@@ -42,6 +42,7 @@ AvCodec::AvCodec(double width, double height, double fps, int bitrate,
       video_minrate(video_minrate),
       video_maxrate(video_maxrate),
       video_tune(video_tune),
+      bitrate(bitrate),
       fps(fps) {
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
   av_register_all();
@@ -279,8 +280,7 @@ void AvCodec::initialize_video_codec_stream(const std::string &codec_profile) {
   av_dict_set(&codec_options, "bufsize", video_bufsize.c_str(), 0);
   av_dict_set(&codec_options, "minrate", video_minrate.c_str(), 0);
   av_dict_set(&codec_options, "maxrate", video_maxrate.c_str(), 0);
-  av_dict_set(&codec_options, "crf", "23", 0);
-  av_dict_set(&codec_options, "b", video_maxrate.c_str(), 0);
+  av_dict_set(&codec_options, "b", std::to_string(bitrate).c_str(), 0);
   av_dict_set(&codec_options, "x264opts", "nal-hrd=cbr:force-cfr=1", 0);
 
   // open video encoder
@@ -308,6 +308,9 @@ void AvCodec::initialize_audio_codec_stream(const std::string &codec_profile) {
 
   // open video encoder
   ret = avcodec_open2(audio_st.enc, audio_st.codec, &codec_options);
+
+  av_dict_set(&codec_options, "strict", "1", 0);
+
   av_dict_free(&codec_options);
   if (ret < 0) {
     log_critical("Could not open video encoder (error '{}')", _av_err2str(ret));
